@@ -4,30 +4,40 @@ import Navbar from './components/Navbar';
 import Dashboard from './components/Dashboard';
 import DocumentViewer from './components/DocumentViewer';
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || '';
+const API_BASE_URL = (import.meta.env.VITE_API_URL || 'http://localhost:8000').replace(/\/$/, '');
 
 async function fetchWithFallback(endpoint, options) {
   const cleanEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
 
-  // Candidate URLs to try in order
-  const candidates = [];
-  
-  if (API_BASE_URL) {
-    candidates.push(`${API_BASE_URL.replace(/\/$/, '')}${cleanEndpoint}`);
-  }
-  candidates.push(`http://127.0.0.1:8000${cleanEndpoint}`);
-  candidates.push(`http://localhost:8000${cleanEndpoint}`);
-  candidates.push(`/api${cleanEndpoint}`);
+  // Candidate base URLs to try
+  const candidateBases = [
+    API_BASE_URL,
+    'http://localhost:8000',
+    'http://127.0.0.1:8000',
+    '/api',
+  ].filter(Boolean);
 
+  // Remove duplicates
+  const uniqueBases = Array.from(new Set(candidateBases));
+
+  let lastResponse = null;
   let lastError = null;
-  for (const url of candidates) {
+
+  for (const base of uniqueBases) {
+    const url = `${base.replace(/\/$/, '')}${cleanEndpoint}`;
     try {
       const res = await fetch(url, options);
-      return res;
+      // If we got an actual HTTP response (200, 400, 401, 500, etc.), return it directly!
+      if (res.status !== 404) {
+        return res;
+      }
+      lastResponse = res;
     } catch (err) {
       lastError = err;
     }
   }
+
+  if (lastResponse) return lastResponse;
   throw lastError || new Error('Backend server is not reachable.');
 }
 
@@ -194,14 +204,14 @@ function ExtractorApp() {
                   <div className="bg-white/10 backdrop-blur-md p-3 rounded-xl border border-white/10">
                     <span className="text-lg block mb-1">📊</span>
                     <span className="text-xs font-bold block">Master Schedules</span>
-                    <span className="text-[10px] text-blue-200">Diff & variation matrices</span>
+                    <span className="text-[10px] text-blue-200">Consolidated table exports</span>
                   </div>
                 </div>
 
                 <div className="pt-3">
                   <button
                     onClick={scrollToUpload}
-                    className="px-6 py-3 bg-gradient-to-r from-blue-500 to-indigo-600 hover:from-blue-600 hover:to-indigo-700 text-white font-extrabold text-xs sm:text-sm rounded-xl transition shadow-lg flex items-center space-x-2"
+                    className="px-6 py-3 bg-gradient-to-r from-blue-500 to-indigo-600 hover:from-blue-600 hover:to-indigo-700 text-white font-extrabold text-xs sm:text-sm rounded-xl transition shadow-lg flex items-center space-x-2 cursor-pointer"
                   >
                     <span>Upload Your Document Below</span>
                     <span>↓</span>
@@ -313,7 +323,7 @@ function ExtractorApp() {
                   type="button"
                   onClick={handleExtract}
                   disabled={!file || loading}
-                  className="w-full sm:w-auto px-8 py-3 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-extrabold text-xs sm:text-sm rounded-xl disabled:opacity-50 disabled:cursor-not-allowed transition shadow-md flex items-center justify-center space-x-2"
+                  className="w-full sm:w-auto px-8 py-3 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-extrabold text-xs sm:text-sm rounded-xl disabled:opacity-50 disabled:cursor-not-allowed transition shadow-md flex items-center justify-center space-x-2 cursor-pointer"
                 >
                   {loading ? (
                     <>
