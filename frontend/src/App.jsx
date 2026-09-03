@@ -4,7 +4,7 @@ import Navbar from './components/Navbar';
 import Dashboard from './components/Dashboard';
 import DocumentViewer from './components/DocumentViewer';
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+const API_BASE_URL = import.meta.env.VITE_API_URL || '';
 
 function ExtractorApp() {
   const { session } = useAuth();
@@ -64,7 +64,10 @@ function ExtractorApp() {
         setExtractionPhase('2. Analyzing with Qwen AI & consolidating schedules...');
       }, 1500);
 
-      const response = await fetch(`${API_BASE_URL}/extract`, {
+      // Construct target URL using fallback logic (supports both direct API URL and dev proxy /api)
+      const targetUrl = API_BASE_URL ? `${API_BASE_URL.replace(/\/$/, '')}/extract` : '/api/extract';
+
+      const response = await fetch(targetUrl, {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${session.access_token}`,
@@ -76,11 +79,11 @@ function ExtractorApp() {
       setExtractionPhase('3. Saving to Supabase Postgres...');
 
       if (!response.ok) {
-        let errorMessage = `Server responded with status ${response.status}`;
+        let errorMessage = `Server error (${response.status})`;
         try {
           const errorData = await response.json();
           if (errorData && errorData.detail) {
-            errorMessage = errorData.detail;
+            errorMessage = typeof errorData.detail === 'string' ? errorData.detail : JSON.stringify(errorData.detail);
           }
         } catch {}
         throw new Error(errorMessage);
@@ -98,7 +101,12 @@ function ExtractorApp() {
       if (fileInputRef.current) fileInputRef.current.value = '';
       window.scrollTo({ top: 0, behavior: 'smooth' });
     } catch (err) {
-      setError(err.message || 'An unexpected error occurred during document extraction.');
+      console.error('Extraction error:', err);
+      setError(
+        err.message === 'Failed to fetch'
+          ? 'Backend server is not reachable. Ensure the backend is running at port 8000 or check your network connection.'
+          : (err.message || 'An unexpected error occurred during document extraction.')
+      );
     } finally {
       setLoading(false);
       setExtractionPhase('');
