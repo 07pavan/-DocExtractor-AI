@@ -25,16 +25,20 @@ def is_valid_uuid(val: str) -> bool:
 
 
 def get_supabase_client() -> Client:
-    """Initializes and returns the Supabase client using service role key."""
-    url = os.getenv("SUPABASE_URL", "").strip().rstrip("/")
+    """Initializes and returns the Supabase client using service role key.
+    Includes sanitization to strip quotes, extra slashes, and trailing spaces.
+    """
+    raw_url = os.getenv("SUPABASE_URL", "").strip()
+    url = raw_url.replace('"', '').replace("'", "").rstrip("/")
     if url.endswith("/rest/v1"):
         url = url[:-len("/rest/v1")].rstrip("/")
 
-    key = os.getenv("SUPABASE_SERVICE_KEY", "").strip()
+    raw_key = os.getenv("SUPABASE_SERVICE_KEY", "").strip()
+    key = raw_key.replace('"', '').replace("'", "").strip()
 
     if not url or not key:
         raise RuntimeError(
-            "Supabase client cannot be initialized: SUPABASE_URL and SUPABASE_SERVICE_KEY must be set."
+            "Supabase client cannot be initialized: SUPABASE_URL and SUPABASE_SERVICE_KEY must be set in environment variables."
         )
 
     return create_client(url, key)
