@@ -12,40 +12,43 @@ export default function Navbar({ onNewUpload }) {
   };
 
   return (
-    <header className="bg-white/90 backdrop-blur-md border-b border-gray-200 sticky top-0 z-50">
-      <div className="max-w-6xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
+    <header className="bg-pure-white border-b border-mist sticky top-0 z-50 h-16">
+      <div className="max-w-[1200px] mx-auto px-4 sm:px-6 h-full flex items-center justify-between">
         {/* Brand / Logo */}
         <div
           onClick={onNewUpload}
-          className="flex items-center space-x-3 cursor-pointer select-none"
+          className="flex items-center space-x-3 cursor-pointer select-none group"
           title="Return to Home"
         >
-          <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-blue-600 to-indigo-600 flex items-center justify-center shadow-md text-white font-bold text-lg">
-            📑
+          {/* Iris Hexagon Icon Glyph */}
+          <div className="w-9 h-9 rounded-control bg-iris flex items-center justify-center text-white shadow-subtle text-base font-black transition group-hover:scale-105">
+            ⬡
           </div>
           <div>
-            <h1 className="text-base font-black text-gray-900 leading-tight">DocExtractor AI</h1>
-            <div className="flex items-center space-x-1.5">
-              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-              <span className="text-[11px] text-gray-500 font-medium">Qwen & Multi-Threading Active</span>
+            <div className="flex items-center space-x-2">
+              <h1 className="text-base font-bold text-studio-slate tracking-tight">DocExtractor AI</h1>
+              <span className="pill-badge !text-[11px] !py-0.5 !px-2.5 !shadow-none border border-mist bg-cloud text-iron">
+                <span className="w-1.5 h-1.5 rounded-full bg-iris animate-pulse"></span>
+                <span>Specify UI</span>
+              </span>
             </div>
           </div>
         </div>
 
         {/* User Profile & Actions */}
         {user && (
-          <div className="flex items-center space-x-3">
+          <div className="flex items-center space-x-4">
             <div className="hidden sm:flex flex-col text-right">
-              <span className="text-xs font-semibold text-gray-800 truncate max-w-[200px]">
+              <span className="text-xs font-semibold text-studio-slate truncate max-w-[220px]">
                 {user.email}
               </span>
-              <span className="text-[10px] text-emerald-600 font-medium">Authenticated</span>
+              <span className="text-[11px] text-iris font-medium">Enterprise Workspace</span>
             </div>
 
             <button
               type="button"
               onClick={handleSignOutClick}
-              className="px-3.5 py-1.5 text-xs font-bold text-gray-700 hover:text-red-600 hover:bg-red-50 border border-gray-300 hover:border-red-200 rounded-lg transition cursor-pointer"
+              className="btn-pill-ghost !text-xs !py-1.5 !px-3.5 hover:!border-studio-slate"
             >
               Sign Out
             </button>

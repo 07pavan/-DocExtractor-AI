@@ -63,7 +63,6 @@ export default function Dashboard({ onSelectDocument, activeDocumentId, onDelete
       setDocuments(data || []);
     } catch (err) {
       console.warn('Dashboard fetch error:', err);
-      // Suppress noisy banner if it was just initial connection handshake
       setDocuments([]);
     } finally {
       setLoading(false);
@@ -111,11 +110,9 @@ export default function Dashboard({ onSelectDocument, activeDocumentId, onDelete
         throw new Error(`Failed to delete document (${res.status})`);
       }
 
-      // Remove from local list
       setDocuments((prev) => prev.filter((d) => d.id !== docId));
       setDeleteConfirmId(null);
 
-      // If this document was open in viewer, clear it
       if (activeDocumentId === docId && onDeleteActiveDocument) {
         onDeleteActiveDocument();
       }
@@ -132,23 +129,25 @@ export default function Dashboard({ onSelectDocument, activeDocumentId, onDelete
   });
 
   return (
-    <div className="bg-white rounded-xl border border-gray-200 p-5 shadow-sm space-y-4">
+    <div className="card-specify space-y-4">
       {/* Header & Refresh */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-gray-100">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-mist">
         <div>
-          <div className="flex items-center space-x-2">
-            <h3 className="text-base font-bold text-gray-900">Your Document Vault</h3>
-            <span className="text-xs px-2 py-0.5 bg-blue-100 text-blue-800 font-semibold rounded-full">
+          <div className="flex items-center space-x-2.5">
+            <h3 className="text-base font-bold text-studio-slate">Document Vault</h3>
+            <span className="pill-badge !text-xs !py-0.5 !px-2.5 !bg-cloud !text-studio-slate">
               {documents.length}
             </span>
           </div>
-          <p className="text-xs text-gray-500">Access and revisit past extractions anytime without re-uploading.</p>
+          <p className="text-xs text-iron mt-0.5">
+            Access and revisit past extractions anytime with zero LLM re-computation.
+          </p>
         </div>
 
         <button
           onClick={fetchDocuments}
           disabled={loading}
-          className="text-xs font-medium text-blue-600 hover:text-blue-800 hover:bg-blue-50 px-3 py-1.5 rounded-lg border border-blue-200 transition flex items-center space-x-1 self-start sm:self-auto cursor-pointer"
+          className="btn-pill-ghost !text-xs !py-1.5 !px-3.5"
         >
           <span>↻</span>
           <span>{loading ? 'Refreshing...' : 'Refresh List'}</span>
@@ -163,13 +162,13 @@ export default function Dashboard({ onSelectDocument, activeDocumentId, onDelete
             placeholder="Search saved documents..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full text-xs pl-8 pr-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="w-full text-xs pl-8 pr-3 py-2 bg-cloud border border-mist focus:border-iris rounded-control focus:outline-none transition shadow-subtle-2 text-studio-slate"
           />
-          <span className="absolute left-2.5 top-2 text-gray-400 text-xs">🔍</span>
+          <span className="absolute left-2.5 top-2.5 text-graphite text-xs">🔍</span>
           {searchQuery && (
             <button
               onClick={() => setSearchQuery('')}
-              className="absolute right-2.5 top-2 text-gray-400 hover:text-gray-600 text-xs font-bold"
+              className="absolute right-2.5 top-2.5 text-graphite hover:text-studio-slate text-xs font-bold"
             >
               ✕
             </button>
@@ -179,22 +178,22 @@ export default function Dashboard({ onSelectDocument, activeDocumentId, onDelete
 
       {/* Error Banner */}
       {error && (
-        <div className="p-3 bg-red-50 text-red-700 text-xs rounded-lg border border-red-200">
+        <div className="p-3 bg-red-50 text-red-700 text-xs rounded-control border border-red-200">
           {error}
         </div>
       )}
 
       {/* Document List Cards */}
       {loading && documents.length === 0 ? (
-        <div className="py-8 text-center text-xs text-gray-400 animate-pulse">
+        <div className="py-8 text-center text-xs text-graphite animate-pulse">
           Loading saved documents...
         </div>
       ) : filteredDocs.length === 0 ? (
-        <div className="py-8 text-center text-xs text-gray-400 bg-gray-50 rounded-lg border border-dashed border-gray-200">
-          {searchQuery ? 'No documents match your search.' : 'No documents saved yet. Upload a PDF above to extract and save it.'}
+        <div className="py-8 text-center text-xs text-iron bg-cloud rounded-card border border-dashed border-mist">
+          {searchQuery ? 'No documents match your search.' : 'No documents saved yet. Upload a PDF below to extract and save it.'}
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5 max-h-[360px] overflow-y-auto pr-1">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-h-[360px] overflow-y-auto pr-1">
           {filteredDocs.map((doc) => {
             const isActive = activeDocumentId === doc.id;
             const isConfirmingDelete = deleteConfirmId === doc.id;
@@ -204,17 +203,17 @@ export default function Dashboard({ onSelectDocument, activeDocumentId, onDelete
               <div
                 key={doc.id}
                 onClick={() => handleDocumentClick(doc.id)}
-                className={`p-3 rounded-lg border transition text-left cursor-pointer flex flex-col justify-between relative group ${
+                className={`p-3.5 rounded-card border transition text-left cursor-pointer flex flex-col justify-between relative group ${
                   isActive
-                    ? 'border-blue-500 bg-blue-50/60 shadow-xs'
-                    : 'border-gray-200 bg-white hover:border-blue-300 hover:bg-gray-50/70'
+                    ? 'border-iris bg-lilac-wash shadow-subtle'
+                    : 'border-mist bg-pure-white hover:border-iris/50 hover:bg-cloud shadow-subtle-2'
                 }`}
               >
                 <div>
                   <div className="flex items-start justify-between gap-2">
-                    <div className="flex items-center space-x-2 min-w-0">
-                      <span className="text-base">📄</span>
-                      <h4 className="text-xs font-bold text-gray-800 truncate" title={doc.filename}>
+                    <div className="flex items-center space-x-2.5 min-w-0">
+                      <span className="text-iris font-bold text-base">⬡</span>
+                      <h4 className="text-xs font-bold text-studio-slate truncate" title={doc.filename}>
                         {doc.filename}
                       </h4>
                     </div>
@@ -226,7 +225,7 @@ export default function Dashboard({ onSelectDocument, activeDocumentId, onDelete
                         e.stopPropagation();
                         setDeleteConfirmId(isConfirmingDelete ? null : doc.id);
                       }}
-                      className="text-gray-400 hover:text-red-600 hover:bg-red-50 p-1 rounded transition flex-shrink-0"
+                      className="text-graphite hover:text-red-600 hover:bg-red-50 p-1 rounded-control transition flex-shrink-0"
                       title="Delete document"
                     >
                       🗑️
@@ -234,25 +233,25 @@ export default function Dashboard({ onSelectDocument, activeDocumentId, onDelete
                   </div>
 
                   {doc.uploaded_at && (
-                    <p className="text-[10px] text-gray-400 mt-1 ml-6">
+                    <p className="text-[11px] text-iron mt-1.5 ml-6">
                       {new Date(doc.uploaded_at).toLocaleDateString()} at {new Date(doc.uploaded_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                     </p>
                   )}
                 </div>
 
-                {/* Inline Delete Confirmation Popover */}
+                {/* Inline Delete Confirmation */}
                 {isConfirmingDelete && (
                   <div
                     onClick={(e) => e.stopPropagation()}
-                    className="mt-2.5 p-2 bg-red-50 border border-red-200 rounded-lg text-xs space-y-1.5 animate-fadeIn"
+                    className="mt-3 p-2.5 bg-red-50 border border-red-200 rounded-control text-xs space-y-2 animate-fadeIn"
                   >
-                    <p className="text-red-800 font-medium text-[11px]">Delete this document permanently?</p>
+                    <p className="text-red-800 font-semibold text-[11px]">Delete this document permanently?</p>
                     <div className="flex items-center space-x-2">
                       <button
                         type="button"
                         disabled={isDeleting}
                         onClick={(e) => handleDeleteDocument(e, doc.id)}
-                        className="px-2.5 py-1 bg-red-600 hover:bg-red-700 text-white rounded font-medium text-[11px] transition"
+                        className="px-3 py-1 bg-red-600 hover:bg-red-700 text-white rounded-pill font-semibold text-[11px] transition cursor-pointer"
                       >
                         {isDeleting ? 'Deleting...' : 'Yes, Delete'}
                       </button>
@@ -262,7 +261,7 @@ export default function Dashboard({ onSelectDocument, activeDocumentId, onDelete
                           e.stopPropagation();
                           setDeleteConfirmId(null);
                         }}
-                        className="px-2.5 py-1 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded font-medium text-[11px] transition"
+                        className="px-3 py-1 bg-pure-white border border-mist text-iron rounded-pill font-semibold text-[11px] transition cursor-pointer"
                       >
                         Cancel
                       </button>

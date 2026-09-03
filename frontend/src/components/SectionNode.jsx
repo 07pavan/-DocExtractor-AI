@@ -54,32 +54,26 @@ export default function SectionNode({ section, searchQuery = '', depth = 0 }) {
     }
   };
 
-  const levelBadges = {
-    1: 'bg-blue-600 text-white shadow-2xs',
-    2: 'bg-indigo-100 text-indigo-800 border border-indigo-200',
-    3: 'bg-slate-100 text-slate-700 border border-slate-200',
-  };
-
   return (
-    <div className={`rounded-2xl transition-all ${
+    <div className={`rounded-card transition-all ${
       depth > 0 
-        ? 'mt-3 ml-4 pl-4 border-l-2 border-indigo-200' 
-        : 'mt-4 border border-slate-200/90 bg-white shadow-sm overflow-hidden'
+        ? 'mt-3 ml-4 pl-4 border-l border-mist' 
+        : 'mt-4 card-specify overflow-hidden'
     }`}>
       {/* Clickable Section Header */}
       <div
         onClick={toggleExpand}
-        className={`flex items-center justify-between p-4 select-none transition ${
-          hasContent ? 'cursor-pointer hover:bg-slate-50/90' : ''
+        className={`flex items-center justify-between p-2 select-none transition ${
+          hasContent ? 'cursor-pointer hover:bg-cloud/70 rounded-control' : ''
         }`}
       >
         <div className="flex items-center space-x-3 min-w-0 pr-2">
           {/* Chevron */}
           {hasContent ? (
-            <div className={`w-6 h-6 rounded-lg flex items-center justify-center transition-transform duration-200 ${
-              expanded ? 'rotate-90 bg-blue-50 text-blue-600' : 'text-slate-400'
+            <div className={`w-6 h-6 rounded-control flex items-center justify-center transition-transform duration-200 ${
+              expanded ? 'rotate-90 text-iris bg-lilac-wash' : 'text-graphite'
             }`}>
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 5l7 7-7 7" />
               </svg>
             </div>
@@ -88,17 +82,15 @@ export default function SectionNode({ section, searchQuery = '', depth = 0 }) {
           )}
 
           {/* Heading Level Tag */}
-          <span className={`px-2 py-0.5 text-[11px] font-black rounded-md flex-shrink-0 ${
-            levelBadges[level] || 'bg-slate-100 text-slate-700'
-          }`}>
+          <span className="pill-badge !text-[11px] !py-0.5 !px-2 !bg-studio-slate !text-pure-white !border-studio-slate">
             H{level}
           </span>
 
           {/* Section Heading Title */}
-          <h3 className={`font-black truncate ${
-            level === 1 ? 'text-base sm:text-lg text-slate-900' : 
-            level === 2 ? 'text-sm sm:text-base text-slate-800' : 
-            'text-xs sm:text-sm font-bold text-slate-700'
+          <h3 className={`font-bold truncate text-studio-slate ${
+            level === 1 ? 'text-base sm:text-lg' : 
+            level === 2 ? 'text-sm sm:text-base' : 
+            'text-xs sm:text-sm'
           }`}>
             {section.heading || 'Untitled Section'}
           </h3>
@@ -106,7 +98,7 @@ export default function SectionNode({ section, searchQuery = '', depth = 0 }) {
 
         {/* Page Tag */}
         {section.page && (
-          <span className="text-[11px] px-2.5 py-1 font-bold bg-slate-100 text-slate-600 rounded-lg flex-shrink-0">
+          <span className="pill-badge !text-[11px] !py-0.5 !px-2.5 !bg-cloud !text-iron">
             Page {section.page}
           </span>
         )}
@@ -114,10 +106,10 @@ export default function SectionNode({ section, searchQuery = '', depth = 0 }) {
 
       {/* Expanded Section Body */}
       {expanded && (
-        <div className="px-5 pb-5 pt-1 space-y-4">
+        <div className="px-3 pb-3 pt-3 space-y-4">
           {/* Body Text */}
           {section.text && section.text.trim().length > 0 && (
-            <div className="p-4 bg-slate-50/80 rounded-xl text-xs sm:text-sm text-slate-700 leading-relaxed whitespace-pre-line border border-slate-200/60">
+            <div className="p-4 bg-cloud rounded-card text-xs sm:text-sm text-studio-slate leading-relaxed whitespace-pre-line border border-mist">
               {section.text}
             </div>
           )}
@@ -125,7 +117,7 @@ export default function SectionNode({ section, searchQuery = '', depth = 0 }) {
           {/* Structured Key-Value Fields */}
           {section.fields && section.fields.length > 0 && (
             <div className="space-y-1.5">
-              <span className="text-[10px] font-extrabold uppercase tracking-widest text-slate-400 block">
+              <span className="text-[10px] font-bold uppercase tracking-widest text-graphite block">
                 Extracted Fields ({section.fields.length})
               </span>
               <FieldTable fields={section.fields} />
@@ -135,7 +127,7 @@ export default function SectionNode({ section, searchQuery = '', depth = 0 }) {
           {/* Tables & Schedules */}
           {section.tables && section.tables.length > 0 && (
             <div className="space-y-1.5">
-              <span className="text-[10px] font-extrabold uppercase tracking-widest text-slate-400 block">
+              <span className="text-[10px] font-bold uppercase tracking-widest text-graphite block">
                 Extracted Tables ({section.tables.length})
               </span>
               <TableView tables={section.tables} />

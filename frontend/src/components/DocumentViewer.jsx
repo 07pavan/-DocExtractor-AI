@@ -79,33 +79,24 @@ function countTotalFields(sections) {
   return total;
 }
 
-/**
- * Strips out 'Page Location' or 'Page' column headers and their corresponding cells for clean exports.
- */
 function cleanTableForExport(table) {
+  if (!table) return { title: 'Table', headers: [], rows: [] };
+  
   const headers = table.headers || [];
   const rows = table.rows || [];
 
-  // Find index of page columns
-  const pageColIndices = [];
+  const pageColIndices = new Set();
   headers.forEach((h, idx) => {
-    const hLow = String(h || '').toLowerCase().trim();
-    if (hLow.includes('page location') || hLow === 'page' || hLow === 'page #') {
-      pageColIndices.push(idx);
+    const hStr = String(h || '').toLowerCase().trim();
+    if (hStr === 'page location' || hStr === 'page' || hStr === 'page #' || hStr === 'page no') {
+      pageColIndices.add(idx);
     }
   });
 
-  if (pageColIndices.length === 0) {
-    return { title: table.title, headers, rows };
-  }
-
-  // Filter headers
-  const cleanHeaders = headers.filter((_, idx) => !pageColIndices.includes(idx));
-
-  // Filter rows
+  const cleanHeaders = headers.filter((_, idx) => !pageColIndices.has(idx));
   const cleanRows = rows.map((r) => {
     if (Array.isArray(r)) {
-      return r.filter((_, idx) => !pageColIndices.includes(idx));
+      return r.filter((_, idx) => !pageColIndices.has(idx));
     }
     return r;
   });
@@ -160,7 +151,7 @@ export default function DocumentViewer({ document: doc, onBackToUpload }) {
       // Add Table Title
       if (cleanTab.title) {
         sheetData.push([cleanTab.title]);
-        sheetData.push([]); // blank row
+        sheetData.push([]);
       }
 
       // Add Headers
@@ -170,33 +161,30 @@ export default function DocumentViewer({ document: doc, onBackToUpload }) {
 
       // Add Data Rows
       if (cleanTab.rows && cleanTab.rows.length > 0) {
-        cleanTab.rows.forEach((r) => {
+        cleanTab.rows.forEach(r => {
           sheetData.push(Array.isArray(r) ? r : [r]);
         });
       }
 
       const worksheet = XLSX.utils.aoa_to_sheet(sheetData);
 
-      // Sanitize sheet name (Excel limits sheet names to 31 chars and no special chars)
-      let sheetName = (cleanTab.title || `Table_${idx + 1}`)
-        .replace(/[:\\/?*\[\]]/g, '')
-        .substring(0, 30)
-        .trim();
-      if (!sheetName) sheetName = `Table_${idx + 1}`;
-
-      // Avoid duplicate sheet names
+      let sheetName = cleanTab.title 
+        ? cleanTab.title.replace(/[:\\/?*\[\]]/g, '').substring(0, 28) 
+        : `Table_${idx + 1}`;
+      
+      if (!sheetName.trim()) sheetName = `Table_${idx + 1}`;
+      
       if (workbook.SheetNames.includes(sheetName)) {
-        sheetName = `${sheetName.substring(0, 26)}_${idx + 1}`;
+        sheetName = `${sheetName.substring(0, 25)}_${idx + 1}`;
       }
 
       XLSX.utils.book_append_sheet(workbook, worksheet, sheetName);
     });
 
-    // Generate Excel file and trigger browser download
     XLSX.writeFile(workbook, `${cleanBaseName}_tables.xlsx`);
   };
 
-  // 3. Export CSV (Clean, without page numbers)
+  // 3. Export CSV
   const handleExportCSV = () => {
     if (allTables.length === 0) {
       alert("No structured tables found in this extraction to export as CSV.");
@@ -233,131 +221,130 @@ export default function DocumentViewer({ document: doc, onBackToUpload }) {
   };
 
   return (
-    <div className="space-y-5 animate-fadeIn">
+    <div className="space-y-6 animate-fadeIn">
       {/* Top Breadcrumb & Navigation Back Bar */}
-      <div className="flex items-center justify-between bg-white p-3.5 rounded-xl border border-gray-200 shadow-2xs">
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 bg-pure-white p-4 rounded-card border border-mist shadow-subtle-2">
         <button
           onClick={onBackToUpload}
-          className="flex items-center space-x-2 text-xs font-bold text-blue-600 hover:text-blue-800 hover:bg-blue-50 px-3 py-1.5 rounded-lg transition cursor-pointer"
+          className="btn-pill-ghost !text-xs !py-1.5 !px-3.5"
         >
           <span>←</span>
           <span>Back to Upload / Document Vault</span>
         </button>
 
-        <div className="flex items-center space-x-3 text-xs text-gray-500">
-          <span className="flex items-center space-x-1 bg-slate-100 px-2 py-1 rounded-md">
-            <span>📑</span>
-            <span className="font-semibold text-slate-800">{totalCount} Sections</span>
+        <div className="flex items-center space-x-2 text-xs text-iron">
+          <span className="pill-badge !text-xs !py-1 !px-2.5 !bg-cloud">
+            <span className="text-iris font-bold">⬡</span>
+            <span>{totalCount} Sections</span>
           </span>
-          <span className="flex items-center space-x-1 bg-slate-100 px-2 py-1 rounded-md">
+          <span className="pill-badge !text-xs !py-1 !px-2.5 !bg-cloud">
             <span>📊</span>
-            <span className="font-semibold text-slate-800">{allTables.length} Tables</span>
+            <span>{allTables.length} Tables</span>
           </span>
-          <span className="flex items-center space-x-1 bg-slate-100 px-2 py-1 rounded-md">
+          <span className="pill-badge !text-xs !py-1 !px-2.5 !bg-cloud">
             <span>📋</span>
-            <span className="font-semibold text-slate-800">{totalFields} Fields</span>
+            <span>{totalFields} Fields</span>
           </span>
         </div>
       </div>
 
-      {/* Document Header & Action Hub */}
-      <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
-          <div className="flex items-center space-x-2.5">
-            <span className="text-2xl">📄</span>
-            <h2 className="text-lg sm:text-xl font-black text-gray-900 truncate max-w-xl" title={filename}>
+      {/* Main Document Title & Multi-Format Export Action Bar */}
+      <div className="card-specify space-y-4">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div className="space-y-1">
+            <div className="flex items-center space-x-2">
+              <span className="pill-badge !text-[11px] !py-0.5 !px-2.5 !bg-mint-wash !text-fern-pop !border-fern-pop/20">
+                Verified Extraction
+              </span>
+              {doc.document_id && (
+                <span className="text-[11px] text-graphite font-mono">
+                  ID: {String(doc.document_id).substring(0, 8)}...
+                </span>
+              )}
+            </div>
+            <h2 className="text-2xl sm:text-3xl font-bold text-studio-slate tracking-tight truncate max-w-2xl" title={filename}>
               {filename}
             </h2>
           </div>
-          {doc.uploaded_at && (
-            <p className="text-xs text-gray-500 mt-1 ml-9">
-              Extracted and saved on <span className="font-semibold text-gray-700">{new Date(doc.uploaded_at).toLocaleString()}</span>
-            </p>
-          )}
-        </div>
 
-        {/* Quick Action Export Buttons */}
-        <div className="flex flex-wrap items-center gap-2">
-          {/* Excel Export Button */}
-          {allTables.length > 0 && (
+          {/* Export Action Buttons (Specify Pill Group) */}
+          <div className="flex flex-wrap items-center gap-2">
             <button
               onClick={handleExportExcel}
-              className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-lg transition flex items-center space-x-1.5 shadow-sm cursor-pointer"
-              title="Download all tables as formatted Excel workbook (.xlsx)"
+              disabled={allTables.length === 0}
+              className="btn-pill-dark !py-2 !px-3.5 !text-xs disabled:opacity-40"
+              title="Export all tables to multi-sheet Excel spreadsheet"
             >
               <span>📗</span>
               <span>Export to Excel (.xlsx)</span>
             </button>
-          )}
 
-          {/* CSV Export Button */}
-          {allTables.length > 0 && (
             <button
               onClick={handleExportCSV}
-              className="px-3 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-xs font-bold rounded-lg border border-emerald-300 transition flex items-center space-x-1 shadow-2xs cursor-pointer"
-              title="Download all tables as clean CSV"
+              disabled={allTables.length === 0}
+              className="btn-pill-ghost !py-2 !px-3.5 !text-xs disabled:opacity-40"
+              title="Export all tables to CSV"
             >
               <span>📊</span>
-              <span>Export CSV</span>
+              <span>CSV</span>
             </button>
-          )}
 
-          {/* JSON Export Button */}
-          <button
-            onClick={handleExportJSON}
-            className="px-3 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs font-bold rounded-lg border border-gray-300 transition flex items-center space-x-1 shadow-2xs cursor-pointer"
-            title="Download full JSON extraction"
-          >
-            <span>📥</span>
-            <span>JSON</span>
-          </button>
+            <button
+              onClick={handleExportJSON}
+              className="btn-pill-ghost !py-2 !px-3.5 !text-xs"
+              title="Download entire hierarchical tree as JSON"
+            >
+              <span>💾</span>
+              <span>JSON</span>
+            </button>
 
-          {/* Copy JSON */}
-          <button
-            onClick={handleCopyJSON}
-            className="px-3 py-2 bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs font-bold rounded-lg border border-blue-200 transition flex items-center space-x-1 shadow-2xs cursor-pointer"
-            title="Copy JSON to clipboard"
-          >
-            <span>{copied ? '✓ Copied' : '📋 Copy JSON'}</span>
-          </button>
+            <button
+              onClick={handleCopyJSON}
+              className="btn-pill-ghost !py-2 !px-3 !text-xs"
+              title="Copy complete JSON tree to clipboard"
+            >
+              <span>{copied ? '✓ Copied' : '📋'}</span>
+            </button>
+          </div>
         </div>
-      </div>
 
-      {/* Grounded Summary Card (KPI Strip, Overview & Evidence badges) */}
-      {summary && (
-        <SummaryCard summary={summary} />
-      )}
-
-      {/* Live Search & Filter Bar */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-3.5 rounded-xl border border-gray-200 shadow-2xs">
-        <div className="relative flex-1 max-w-lg">
+        {/* Live Search and Filter Bar */}
+        <div className="relative pt-2">
           <input
             type="text"
-            placeholder="Search headings, table data, or extracted values..."
+            placeholder="Search headings, fields, or text in this document..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full pl-9 pr-8 py-2 text-xs border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition"
+            className="w-full text-xs pl-9 pr-8 py-2.5 bg-cloud border border-mist focus:border-iris rounded-control focus:outline-none transition shadow-subtle-2 text-studio-slate"
           />
-          <span className="absolute left-3 top-2.5 text-gray-400 text-xs">🔍</span>
+          <span className="absolute left-3 top-5 text-graphite text-xs">🔍</span>
           {searchQuery && (
             <button
               onClick={() => setSearchQuery('')}
-              className="absolute right-2.5 top-2 text-gray-400 hover:text-gray-600 text-xs font-bold"
+              className="absolute right-3 top-5 text-graphite hover:text-studio-slate text-xs font-bold"
             >
               ✕
             </button>
           )}
         </div>
-
-        <div className="flex items-center space-x-2">
-          <span className="text-xs font-bold px-3 py-1.5 bg-blue-50 text-blue-700 border border-blue-200 rounded-full">
-            {searchQuery ? `Showing ${matchCount} of ${totalCount} sections` : `${totalCount} total sections`}
-          </span>
-        </div>
       </div>
 
-      {/* Unified Hierarchical Tree (All Headings, Fields, Schedules, and Tables) */}
-      <SectionTree sections={sections} searchQuery={searchQuery} />
+      {/* Executive Summary Card */}
+      {summary && <SummaryCard summary={summary} />}
+
+      {/* Hierarchical Document Section Tree */}
+      <div className="space-y-3">
+        <div className="flex items-center justify-between px-1">
+          <h3 className="text-xs font-bold uppercase tracking-widest text-graphite">
+            Document Structure & Section Breakdown
+          </h3>
+          <span className="pill-badge !text-[11px] !py-0.5 !px-2.5 !bg-cloud">
+            Showing {matchCount} of {totalCount} sections
+          </span>
+        </div>
+
+        <SectionTree sections={sections} searchQuery={searchQuery} />
+      </div>
     </div>
   );
 }
