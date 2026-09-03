@@ -1,6 +1,13 @@
-# Core Extraction Dependencies
+# Core Extraction & API Dependencies
 pymupdf==1.24.1
 pytest==8.1.1
+fastapi==0.110.0
+uvicorn==0.29.0
+python-multipart==0.0.9
+supabase==2.4.1
+pyjwt[crypto]>=2.8.0
+cryptography>=42.0.0
 groq>=0.9.0
 openai>=1.20.0
 python-dotenv==1.0.1
+json-repair>=0.30.0
