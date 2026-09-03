@@ -1,0 +1,62 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# render.yaml — Infrastructure-as-Code for Render.com
+#
+# Defines the backend FastAPI service configuration.
+# Render reads this file automatically when the repo is connected.
+#
+# How to use:
+#   1. Go to https://dashboard.render.com → New → Blueprint
+#   2. Connect your GitHub repo (07pavan/-DocExtractor-AI)
+#   3. Render reads this file and creates the service automatically
+#   4. Add environment variable values in the Render dashboard
+# ──────────────────────────────────────────────────────────────────────────────
+
+services:
+  - type: web
+    name: docextractor-api
+    runtime: python
+    region: oregon          # Closest free region (US West)
+    plan: free              # Render free tier (spins down after 15min idle)
+    branch: main
+
+    # Build configuration
+    buildCommand: |
+      pip install --upgrade pip
+      pip install -r requirements.txt
+      pip install -r api/requirements.txt
+
+    # Start command — $PORT is injected by Render automatically
+    startCommand: uvicorn api.main:app --host 0.0.0.0 --port $PORT
+
+    # Health check — Render pings this to verify the service is alive
+    healthCheckPath: /health
+
+    # Auto-deploy when main branch is pushed (from GitHub Actions CD workflow)
+    autoDeploy: true
+
+    # Environment variables — set values in Render dashboard (not here)
+    # These are just declarations; actual secret values come from Render env groups
+    envVars:
+      - key: SUPABASE_URL
+        sync: false           # Must be set manually in Render dashboard
+
+      - key: SUPABASE_SERVICE_KEY
+        sync: false
+
+      - key: SUPABASE_JWT_SECRET
+        sync: false
+
+      - key: GROQ_API_KEY
+        sync: false
+
+      - key: GROQ_MODEL
+        value: qwen/qwen3.8-27b    # Default value (can override in dashboard)
+
+      - key: OPENROUTER_API_KEY
+        sync: false
+
+      - key: OPENROUTER_MODEL
+        value: qwen/qwen-2.5-72b-instruct
+
+      - key: PYTHON_VERSION
+        value: "3.11.0"
