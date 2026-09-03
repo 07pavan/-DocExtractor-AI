@@ -6,7 +6,6 @@
  *   Date      (MM/DD/YYYY or similar) → blue badge
  *   Status    (Filed / Approved / Pending / Bypassed / Satisfied) → colour pill
  *   Page ref  (Page N) → slate badge
- *   Variation column   → amber highlight
  *   Null / empty       → em dash placeholder (never fabricated text)
  *
  * Row grouping:
@@ -42,7 +41,6 @@ function detectCellType(value, header) {
   const h = (header || '').toLowerCase();
 
   if (h.includes('page') || /^page\s+\d+/i.test(s)) return 'page';
-  if (h.includes('variation') || h.includes('unique') || h.includes('difference')) return 'variation';
   if (CURRENCY_RE.test(s)) return 'currency';
   if (DATE_RE.test(s)) return 'date';
 
@@ -67,14 +65,6 @@ function renderCell(value, header) {
     return (
       <span className="px-2 py-0.5 bg-slate-100 text-slate-700 font-semibold rounded text-[11px] whitespace-nowrap">
         {s}
-      </span>
-    );
-  }
-
-  if (type === 'variation') {
-    return (
-      <span className="px-2 py-0.5 bg-amber-50 text-amber-900 border border-amber-200 font-medium rounded text-[11px] block leading-relaxed">
-        ✨ {s}
       </span>
     );
   }
@@ -223,7 +213,7 @@ function SingleTable({ table }) {
             <button
               onClick={() => setPage((p) => Math.max(0, p - 1))}
               disabled={page === 0}
-              className="px-2.5 py-1 rounded border border-gray-300 disabled:opacity-40 hover:bg-gray-100 transition font-medium"
+              className="px-2.5 py-1 rounded border border-gray-300 disabled:opacity-40 hover:bg-gray-100 transition font-medium cursor-pointer"
             >
               ← Prev
             </button>
@@ -231,7 +221,7 @@ function SingleTable({ table }) {
             <button
               onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
               disabled={page >= totalPages - 1}
-              className="px-2.5 py-1 rounded border border-gray-300 disabled:opacity-40 hover:bg-gray-100 transition font-medium"
+              className="px-2.5 py-1 rounded border border-gray-300 disabled:opacity-40 hover:bg-gray-100 transition font-medium cursor-pointer"
             >
               Next →
             </button>

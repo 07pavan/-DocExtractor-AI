@@ -1,5 +1,5 @@
-"""Schedule Consolidator & Difference Analyzer for Multi-Page & Landscape Tables.
-Aggregates repeating schedule tables across all pages and creates dedicated variation/diff columns.
+"""Schedule Consolidator for Multi-Page & Landscape Tables.
+Aggregates repeating schedule tables across all pages into clean master tables.
 """
 
 from __future__ import annotations
@@ -16,8 +16,7 @@ def clean_str(val: Any) -> str:
 
 def consolidate_schedule_tables(detected_tables: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """Scans all tables across all pages, identifies repeating multi-page schedules,
-
-    and consolidates them into clean master tables with Page numbers and Difference columns.
+    and consolidates them into clean master tables without artificial variation columns.
     """
     form_schedule_rows: List[List[str]] = []
     supp_doc_rows: List[List[str]] = []
@@ -55,30 +54,16 @@ def consolidate_schedule_tables(detected_tables: List[Dict[str, Any]]) -> List[D
                 if "item no" in item_no.lower() or "form schedule" in item_no.lower():
                     continue
 
-                # If this is a valid data row (item_no is digit or form_number is present or form_name has content)
+                # If this is a valid data row
                 if item_no.isdigit() or form_number or len(form_name) > 10:
-                    # Format form name nicely
-                    short_form_name = form_name[:90] + "..." if len(form_name) > 90 else form_name
+                    short_form_name = form_name[:120]
 
-                    # Create signature to prevent duplicate rows from same page
-                    sig = (page_num, item_no, form_number, attachment, submitted)
+                    # Deduplicate exact duplicate items
+                    sig = (item_no, form_name, form_number, attachment, submitted)
                     if sig not in seen_signatures:
                         seen_signatures.add(sig)
 
-                        # Compute variation note
-                        variation = []
-                        if form_number:
-                            variation.append(f"Form #{form_number}")
-                        if attachment:
-                            variation.append(f"File: {attachment}")
-                        if readability:
-                            variation.append(f"Score: {readability}")
-                        if "submitted" in submitted.lower() or "/" in submitted:
-                            variation.append(f"{submitted}")
-                        variation_str = " | ".join(variation) if variation else "Standard Item"
-
                         form_schedule_rows.append([
-                            f"Page {page_num}",
                             item_no if item_no else "1",
                             short_form_name,
                             form_number,
@@ -87,7 +72,6 @@ def consolidate_schedule_tables(detected_tables: List[Dict[str, Any]]) -> List[D
                             readability,
                             attachment,
                             submitted,
-                            variation_str,
                         ])
 
         elif any(k in combined_header for k in ["supporting document", "bypassed", "satisfied", "attachment(s)"]):
@@ -96,11 +80,10 @@ def consolidate_schedule_tables(detected_tables: List[Dict[str, Any]]) -> List[D
                     label = clean_str(r[0])
                     val = clean_str(r[1]) if len(r) > 1 else ""
                     if label and val and "supporting document" not in label.lower():
-                        sig = (page_num, label, val)
+                        sig = (label, val)
                         if sig not in seen_signatures:
                             seen_signatures.add(sig)
                             supp_doc_rows.append([
-                                f"Page {page_num}",
                                 label,
                                 val,
                                 "Supporting Document Schedule",
@@ -108,12 +91,11 @@ def consolidate_schedule_tables(detected_tables: List[Dict[str, Any]]) -> List[D
 
     consolidated: List[Dict[str, Any]] = []
 
-    # 1. Master Form Schedule Table with Diff/Variation Column
+    # 1. Master Form Schedule Table
     if form_schedule_rows:
         consolidated.append({
-            "title": f"Consolidated Form Schedule ({len(form_schedule_rows)} Items across all pages)",
+            "title": f"Consolidated Form Schedule ({len(form_schedule_rows)} Items)",
             "headers": [
-                "Page Location",
                 "Item #",
                 "Form Name",
                 "Form Number",
@@ -122,7 +104,6 @@ def consolidate_schedule_tables(detected_tables: List[Dict[str, Any]]) -> List[D
                 "Readability",
                 "Attachment",
                 "Submitted Details",
-                "What is Unique / Variation",
             ],
             "rows": form_schedule_rows,
         })
@@ -131,7 +112,7 @@ def consolidate_schedule_tables(detected_tables: List[Dict[str, Any]]) -> List[D
     if supp_doc_rows:
         consolidated.append({
             "title": f"Supporting Document Schedules ({len(supp_doc_rows)} Items)",
-            "headers": ["Page Location", "Schedule Item / Status", "Document Name / Details", "Category"],
+            "headers": ["Schedule Item / Status", "Document Name / Details", "Category"],
             "rows": supp_doc_rows[:50],
         })
 

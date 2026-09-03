@@ -369,8 +369,7 @@ def extract_with_llm(pdf_bytes: bytes, filename: str = "document.pdf") -> Dict[s
             "level": 1,
             "page": 1,
             "text": (
-                "Consolidated schedule items extracted across all pages. "
-                "The 'What is Unique / Variation' column highlights what differs per page."
+                "Consolidated structured schedule items extracted across all document pages."
             ),
             "fields": [],
             "tables": consolidated_tables,
