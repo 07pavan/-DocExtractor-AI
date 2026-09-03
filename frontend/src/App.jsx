@@ -6,6 +6,31 @@ import DocumentViewer from './components/DocumentViewer';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || '';
 
+async function fetchWithFallback(endpoint, options) {
+  const cleanEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
+
+  // Candidate URLs to try in order
+  const candidates = [];
+  
+  if (API_BASE_URL) {
+    candidates.push(`${API_BASE_URL.replace(/\/$/, '')}${cleanEndpoint}`);
+  }
+  candidates.push(`http://127.0.0.1:8000${cleanEndpoint}`);
+  candidates.push(`http://localhost:8000${cleanEndpoint}`);
+  candidates.push(`/api${cleanEndpoint}`);
+
+  let lastError = null;
+  for (const url of candidates) {
+    try {
+      const res = await fetch(url, options);
+      return res;
+    } catch (err) {
+      lastError = err;
+    }
+  }
+  throw lastError || new Error('Backend server is not reachable.');
+}
+
 function ExtractorApp() {
   const { session } = useAuth();
   const [file, setFile] = useState(null);
@@ -64,10 +89,7 @@ function ExtractorApp() {
         setExtractionPhase('2. Analyzing with Qwen AI & consolidating schedules...');
       }, 1500);
 
-      // Construct target URL using fallback logic (supports both direct API URL and dev proxy /api)
-      const targetUrl = API_BASE_URL ? `${API_BASE_URL.replace(/\/$/, '')}/extract` : '/api/extract';
-
-      const response = await fetch(targetUrl, {
+      const response = await fetchWithFallback('/extract', {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${session.access_token}`,
@@ -103,8 +125,8 @@ function ExtractorApp() {
     } catch (err) {
       console.error('Extraction error:', err);
       setError(
-        err.message === 'Failed to fetch'
-          ? 'Backend server is not reachable. Ensure the backend is running at port 8000 or check your network connection.'
+        err.message === 'Failed to fetch' || err.name === 'TypeError'
+          ? 'Backend server is not reachable. Please ensure the backend server is running on port 8000.'
           : (err.message || 'An unexpected error occurred during document extraction.')
       );
     } finally {
