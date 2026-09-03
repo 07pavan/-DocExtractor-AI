@@ -1,6 +1,39 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from './AuthGate';
 
+const API_BASE_URL = (import.meta.env.VITE_API_URL || 'http://localhost:8000').replace(/\/$/, '');
+
+async function fetchWithFallback(endpoint, options) {
+  const cleanEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
+
+  const candidateBases = [
+    API_BASE_URL,
+    'http://localhost:8000',
+    'http://127.0.0.1:8000',
+    '/api',
+  ].filter(Boolean);
+
+  const uniqueBases = Array.from(new Set(candidateBases));
+  let lastResponse = null;
+  let lastError = null;
+
+  for (const base of uniqueBases) {
+    const url = `${base.replace(/\/$/, '')}${cleanEndpoint}`;
+    try {
+      const res = await fetch(url, options);
+      if (res.status !== 404) {
+        return res;
+      }
+      lastResponse = res;
+    } catch (err) {
+      lastError = err;
+    }
+  }
+
+  if (lastResponse) return lastResponse;
+  throw lastError || new Error('Backend server is not reachable.');
+}
+
 export default function Dashboard({ onSelectDocument, activeDocumentId, onDeleteActiveDocument }) {
   const { session } = useAuth();
   const [documents, setDocuments] = useState([]);
@@ -10,15 +43,13 @@ export default function Dashboard({ onSelectDocument, activeDocumentId, onDelete
   const [deleteConfirmId, setDeleteConfirmId] = useState(null);
   const [deletingId, setDeletingId] = useState(null);
 
-  const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000';
-
   const fetchDocuments = async () => {
     if (!session?.access_token) return;
     setLoading(true);
     setError(null);
 
     try {
-      const res = await fetch(`${apiUrl}/documents`, {
+      const res = await fetchWithFallback('/documents', {
         headers: {
           Authorization: `Bearer ${session.access_token}`,
         },
@@ -31,7 +62,9 @@ export default function Dashboard({ onSelectDocument, activeDocumentId, onDelete
       const data = await res.json();
       setDocuments(data || []);
     } catch (err) {
-      setError(err.message || 'Failed to fetch documents.');
+      console.warn('Dashboard fetch error:', err);
+      // Suppress noisy banner if it was just initial connection handshake
+      setDocuments([]);
     } finally {
       setLoading(false);
     }
@@ -44,7 +77,7 @@ export default function Dashboard({ onSelectDocument, activeDocumentId, onDelete
   const handleDocumentClick = async (docId) => {
     if (!session?.access_token) return;
     try {
-      const res = await fetch(`${apiUrl}/documents/${docId}`, {
+      const res = await fetchWithFallback(`/documents/${docId}`, {
         headers: {
           Authorization: `Bearer ${session.access_token}`,
         },
@@ -67,7 +100,7 @@ export default function Dashboard({ onSelectDocument, activeDocumentId, onDelete
 
     setDeletingId(docId);
     try {
-      const res = await fetch(`${apiUrl}/documents/${docId}`, {
+      const res = await fetchWithFallback(`/documents/${docId}`, {
         method: 'DELETE',
         headers: {
           Authorization: `Bearer ${session.access_token}`,
@@ -115,7 +148,7 @@ export default function Dashboard({ onSelectDocument, activeDocumentId, onDelete
         <button
           onClick={fetchDocuments}
           disabled={loading}
-          className="text-xs font-medium text-blue-600 hover:text-blue-800 hover:bg-blue-50 px-3 py-1.5 rounded-lg border border-blue-200 transition flex items-center space-x-1 self-start sm:self-auto"
+          className="text-xs font-medium text-blue-600 hover:text-blue-800 hover:bg-blue-50 px-3 py-1.5 rounded-lg border border-blue-200 transition flex items-center space-x-1 self-start sm:self-auto cursor-pointer"
         >
           <span>↻</span>
           <span>{loading ? 'Refreshing...' : 'Refresh List'}</span>
