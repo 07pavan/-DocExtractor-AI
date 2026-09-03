@@ -119,19 +119,19 @@ def parallel_extract_full_text_and_tables(
 # TOKEN-EFFICIENT PAGE DIGEST BUILDER (Ultra-Fast & Grounded)
 # ─────────────────────────────────────────────────────────────────────────────
 
-def build_compact_page_digest(page_texts: List[Dict[str, Any]], total_pages: int, max_total_chars: int = 12000) -> str:
+def build_compact_page_digest(page_texts: List[Dict[str, Any]], total_pages: int, max_total_chars: int = 8000) -> str:
     """Builds a token-efficient verbatim digest of key pages so the LLM call
-    fits comfortably within Groq's high-speed inference tier (< 5000 tokens).
+    fits comfortably within Groq's high-speed inference tier (< 4000 tokens).
     
-    For small docs (<= 10 pages): includes 100% of text from all pages.
-    For large docs (> 10 pages): prioritizes opening pages (1-6), middle filing
+    For small docs (<= 8 pages): includes 100% of text from all pages.
+    For large docs (> 8 pages): prioritizes opening pages (1-5), middle filing
     pages, and closing disposition pages where metadata and schedules live.
     """
-    if total_pages <= 10:
+    if total_pages <= 8:
         pages_to_include = set(range(1, total_pages + 1))
     else:
         mid = total_pages // 2
-        pages_to_include = {1, 2, 3, 4, 5, 6, mid - 1, mid, mid + 1, total_pages - 2, total_pages - 1, total_pages}
+        pages_to_include = {1, 2, 3, 4, 5, mid - 1, mid, total_pages - 1, total_pages}
 
     parts: List[str] = []
     current_chars = 0
@@ -141,9 +141,9 @@ def build_compact_page_digest(page_texts: List[Dict[str, Any]], total_pages: int
             page_text = p.get("text", "").strip()
             if not page_text:
                 continue
-            # Cap each page at 1200 chars to avoid overflowing token budget
-            if len(page_text) > 1200:
-                page_text = page_text[:1200].rsplit(" ", 1)[0] + "..."
+            # Cap each page at 1000 chars to avoid overflowing token budget
+            if len(page_text) > 1000:
+                page_text = page_text[:1000].rsplit(" ", 1)[0] + "..."
             
             snippet = f"=== PAGE {p['page']} ===\n{page_text}"
             if current_chars + len(snippet) > max_total_chars:
@@ -232,9 +232,16 @@ def grounded_llm_extraction(
         {"role": "user", "content": user_prompt},
     ]
 
-    response_text = llm_client.generate_chat_completion(
-        messages, json_mode=True, max_tokens=3000
-    )
+    try:
+        response_text = llm_client.generate_chat_completion(
+            messages, json_mode=True, max_tokens=3000
+        )
+    except Exception as e:
+        logger.warning("generate_chat_completion returned error: %s", str(e))
+        return {}
+
+    if not response_text:
+        return {}
 
     # Attempt to repair and parse JSON
     try:
@@ -245,7 +252,14 @@ def grounded_llm_extraction(
     except Exception:
         pass
 
-    return json.loads(response_text)
+    try:
+        parsed = json.loads(response_text)
+        if isinstance(parsed, dict):
+            return parsed
+    except Exception:
+        pass
+
+    return {}
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -285,7 +299,7 @@ def extract_with_llm(pdf_bytes: bytes, filename: str = "document.pdf") -> Dict[s
     schema = get_schema(doc_type)
 
     # ── Step 3: Build compact token-efficient page digest ─────────────────────
-    compact_digest = build_compact_page_digest(page_texts, total_pages=total_pages, max_total_chars=12000)
+    compact_digest = build_compact_page_digest(page_texts, total_pages=total_pages, max_total_chars=8000)
 
     # Format vector tables as a compact reference string (first 5 tables preview)
     tables_lines: List[str] = []
@@ -310,20 +324,23 @@ def extract_with_llm(pdf_bytes: bytes, filename: str = "document.pdf") -> Dict[s
         logger.error("LLM extraction failed: %s — using heuristic fallback", str(exc))
         llm_result = {}
 
+    if not isinstance(llm_result, dict):
+        llm_result = {}
+
     # ── Step 5: Consolidate multi-page / landscape schedule tables ────────────
     consolidated_tables = consolidate_schedule_tables(detected_tables)
 
     # ── Step 6: Assemble final document structure ─────────────────────────────
-    metadata_raw = llm_result.get("metadata", {})
-    source_evidence = llm_result.get("source_evidence", {})
-    sections_data: List[Dict[str, Any]] = llm_result.get("sections", [])
+    metadata_raw = llm_result.get("metadata") or {}
+    source_evidence = llm_result.get("source_evidence") or {}
+    sections_data: List[Dict[str, Any]] = llm_result.get("sections") or []
 
     # Enrich metadata fields with type info from schema + source evidence
     enriched_metadata: Dict[str, Any] = {}
     for field_def in schema.get("fields", []):
         key = field_def["key"]
         raw_value = metadata_raw.get(key)
-        evidence = source_evidence.get(key, {})
+        evidence = source_evidence.get(key) or {}
         enriched_metadata[key] = {
             "value": raw_value,
             "label": field_def["label"],
@@ -338,11 +355,11 @@ def extract_with_llm(pdf_bytes: bytes, filename: str = "document.pdf") -> Dict[s
     summary_block = {
         "doc_type": doc_type,
         "doc_type_display": schema.get("display_name", doc_type),
-        "classification_confidence": classification["confidence"],
+        "classification_confidence": classification.get("confidence", 1.0),
         "overview": llm_result.get("overview"),
-        "key_points": llm_result.get("key_points", []),
+        "key_points": llm_result.get("key_points") or [],
         "metadata": enriched_metadata,
-        "kpi_keys": schema.get("kpi_keys", []),
+        "kpi_keys": schema.get("kpi_keys") or [],
     }
 
     # Inject consolidated multi-page schedule tables as a dedicated section
