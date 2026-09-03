@@ -1,0 +1,58 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# Nightly Workflow — Heavy integration tests (not run on every push)
+#
+# Runs: Every night at 2:00 AM UTC (7:30 AM IST)
+# Tests: Full 114-page parallel extraction test (takes ~90s)
+# Can also be triggered manually from GitHub Actions UI
+# ──────────────────────────────────────────────────────────────────────────────
+
+name: Nightly — Full Integration Tests
+
+on:
+  schedule:
+    - cron: "0 2 * * *"   # 2:00 AM UTC daily = 7:30 AM IST
+  workflow_dispatch:       # Manual trigger from GitHub UI
+
+jobs:
+  full-integration-tests:
+    name: 🌙 Full Integration Test Suite
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install -r api/requirements.txt
+
+      - name: Create test environment
+        run: |
+          cat > .env << 'EOF'
+          SUPABASE_URL=https://test.supabase.co
+          SUPABASE_SERVICE_KEY=test-service-key
+          SUPABASE_JWT_SECRET=test-jwt-secret-at-least-32-characters-long
+          GROQ_API_KEY=test-groq-key
+          GROQ_MODEL=qwen/qwen3.8-27b
+          OPENROUTER_API_KEY=test-openrouter-key
+          OPENROUTER_MODEL=qwen/qwen-2.5-72b-instruct
+          EOF
+
+      - name: Run full test suite including large document tests
+        run: |
+          python -m pytest tests/ -v --tb=short \
+            --ignore=tests/sample_pdfs
+
+      - name: Write nightly report summary
+        if: always()
+        run: |
+          echo "## 🌙 Nightly Test Report" >> $GITHUB_STEP_SUMMARY
+          echo "Run date: $(date -u)" >> $GITHUB_STEP_SUMMARY
