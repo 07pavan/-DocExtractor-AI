@@ -1,18 +1,30 @@
 import { useAuth } from './AuthGate';
 
-export default function Navbar() {
-  const { user, signOut } = useAuth();
+export default function Navbar({ onNewUpload }) {
+  const { user, signOut, logout } = useAuth();
+
+  const handleSignOutClick = async () => {
+    if (signOut) {
+      await signOut();
+    } else if (logout) {
+      await logout();
+    }
+  };
 
   return (
-    <header className="bg-white/80 backdrop-blur-md border-b border-gray-200 sticky top-0 z-50">
+    <header className="bg-white/90 backdrop-blur-md border-b border-gray-200 sticky top-0 z-50">
       <div className="max-w-6xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
         {/* Brand / Logo */}
-        <div className="flex items-center space-x-3">
+        <div
+          onClick={onNewUpload}
+          className="flex items-center space-x-3 cursor-pointer select-none"
+          title="Return to Home"
+        >
           <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-blue-600 to-indigo-600 flex items-center justify-center shadow-md text-white font-bold text-lg">
             📑
           </div>
           <div>
-            <h1 className="text-base font-bold text-gray-900 leading-tight">DocExtractor AI</h1>
+            <h1 className="text-base font-black text-gray-900 leading-tight">DocExtractor AI</h1>
             <div className="flex items-center space-x-1.5">
               <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
               <span className="text-[11px] text-gray-500 font-medium">Qwen & Multi-Threading Active</span>
@@ -31,8 +43,9 @@ export default function Navbar() {
             </div>
 
             <button
-              onClick={signOut}
-              className="px-3 py-1.5 text-xs font-medium text-gray-700 hover:text-red-600 hover:bg-red-50 border border-gray-300 hover:border-red-200 rounded-lg transition"
+              type="button"
+              onClick={handleSignOutClick}
+              className="px-3.5 py-1.5 text-xs font-bold text-gray-700 hover:text-red-600 hover:bg-red-50 border border-gray-300 hover:border-red-200 rounded-lg transition cursor-pointer"
             >
               Sign Out
             </button>

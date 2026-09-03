@@ -7,6 +7,7 @@ export const AuthContext = createContext({
   session: null,
   user: null,
   token: null,
+  signOut: async () => {},
   logout: async () => {},
 });
 
@@ -39,14 +40,23 @@ export default function AuthGate({ children }) {
     };
   }, []);
 
-  const logout = async () => {
-    await supabase.auth.signOut();
+  const handleSignOut = async () => {
+    try {
+      await supabase.auth.signOut();
+    } catch (err) {
+      console.error('Sign out error:', err);
+    } finally {
+      setSession(null);
+    }
   };
 
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-[50vh]">
-        <div className="text-gray-500 text-sm">Checking authentication...</div>
+        <div className="flex items-center space-x-2 text-gray-500 text-sm">
+          <div className="w-4 h-4 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+          <span>Checking authentication...</span>
+        </div>
       </div>
     );
   }
@@ -67,7 +77,8 @@ export default function AuthGate({ children }) {
     session,
     user: session.user,
     token: session.access_token,
-    logout,
+    signOut: handleSignOut,
+    logout: handleSignOut,
   };
 
   return (

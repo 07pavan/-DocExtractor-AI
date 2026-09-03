@@ -65,7 +65,20 @@ function collectAllTables(sections) {
   return all;
 }
 
-export default function DocumentViewer({ document: doc }) {
+function countTotalFields(sections) {
+  let total = 0;
+  for (const s of sections) {
+    if (s.fields && Array.isArray(s.fields)) {
+      total += s.fields.length;
+    }
+    if (s.subsections && Array.isArray(s.subsections)) {
+      total += countTotalFields(s.subsections);
+    }
+  }
+  return total;
+}
+
+export default function DocumentViewer({ document: doc, onBackToUpload }) {
   const [searchQuery, setSearchQuery] = useState('');
   const [copied, setCopied] = useState(false);
 
@@ -77,6 +90,7 @@ export default function DocumentViewer({ document: doc }) {
   );
 
   const allTables = useMemo(() => collectAllTables(sections), [sections]);
+  const totalFields = useMemo(() => countTotalFields(sections), [sections]);
 
   if (!doc) return null;
 
@@ -128,28 +142,55 @@ export default function DocumentViewer({ document: doc }) {
   };
 
   return (
-    <div className="pt-4 border-t space-y-4 animate-fadeIn">
+    <div className="space-y-5 animate-fadeIn">
+      {/* Top Breadcrumb & Navigation Back Bar */}
+      <div className="flex items-center justify-between bg-white p-3.5 rounded-xl border border-gray-200 shadow-2xs">
+        <button
+          onClick={onBackToUpload}
+          className="flex items-center space-x-2 text-xs font-bold text-blue-600 hover:text-blue-800 hover:bg-blue-50 px-3 py-1.5 rounded-lg transition"
+        >
+          <span>←</span>
+          <span>Back to Upload / Document Vault</span>
+        </button>
+
+        <div className="flex items-center space-x-3 text-xs text-gray-500">
+          <span className="flex items-center space-x-1 bg-slate-100 px-2 py-1 rounded-md">
+            <span>📑</span>
+            <span className="font-semibold text-slate-800">{totalCount} Sections</span>
+          </span>
+          <span className="flex items-center space-x-1 bg-slate-100 px-2 py-1 rounded-md">
+            <span>📊</span>
+            <span className="font-semibold text-slate-800">{allTables.length} Tables</span>
+          </span>
+          <span className="flex items-center space-x-1 bg-slate-100 px-2 py-1 rounded-md">
+            <span>📋</span>
+            <span className="font-semibold text-slate-800">{totalFields} Fields</span>
+          </span>
+        </div>
+      </div>
+
       {/* Document Header & Action Hub */}
-      <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-3">
+      <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <div className="flex items-center space-x-2">
-            <span className="text-xl">📄</span>
-            <h2 className="text-base sm:text-lg font-bold text-gray-900 truncate max-w-md" title={filename}>
+          <div className="flex items-center space-x-2.5">
+            <span className="text-2xl">📄</span>
+            <h2 className="text-lg sm:text-xl font-black text-gray-900 truncate max-w-xl" title={filename}>
               {filename}
             </h2>
           </div>
           {doc.uploaded_at && (
-            <p className="text-xs text-gray-500 mt-0.5 ml-7">
-              Processed on {new Date(doc.uploaded_at).toLocaleString()}
+            <p className="text-xs text-gray-500 mt-1 ml-9">
+              Extracted and saved on <span className="font-semibold text-gray-700">{new Date(doc.uploaded_at).toLocaleString()}</span>
             </p>
           )}
         </div>
 
         {/* Quick Action Export Buttons */}
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2.5">
           <button
             onClick={handleExportJSON}
-            className="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs font-semibold rounded-lg border border-gray-300 transition flex items-center space-x-1"
+            className="px-3.5 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs font-bold rounded-lg border border-gray-300 transition flex items-center space-x-1.5 shadow-2xs"
+            title="Download full JSON extraction"
           >
             <span>📥</span>
             <span>Download JSON</span>
@@ -158,7 +199,8 @@ export default function DocumentViewer({ document: doc }) {
           {allTables.length > 0 && (
             <button
               onClick={handleExportCSV}
-              className="px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-xs font-semibold rounded-lg border border-emerald-300 transition flex items-center space-x-1"
+              className="px-3.5 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-xs font-bold rounded-lg border border-emerald-300 transition flex items-center space-x-1.5 shadow-2xs"
+              title="Download all tables as formatted CSV"
             >
               <span>📊</span>
               <span>Export Tables (CSV)</span>
@@ -167,24 +209,25 @@ export default function DocumentViewer({ document: doc }) {
 
           <button
             onClick={handleCopyJSON}
-            className="px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs font-semibold rounded-lg border border-blue-200 transition flex items-center space-x-1"
+            className="px-3.5 py-2 bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs font-bold rounded-lg border border-blue-200 transition flex items-center space-x-1.5 shadow-2xs"
+            title="Copy JSON to clipboard"
           >
             <span>{copied ? '✓ Copied' : '📋 Copy JSON'}</span>
           </button>
         </div>
       </div>
 
-      {/* Executive Summary Card (if generated by LLM) */}
+      {/* Grounded Summary Card (KPI Strip, Overview & Evidence badges) */}
       {summary && (
         <SummaryCard summary={summary} />
       )}
 
-      {/* Search Input Bar & Match Counter */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-        <div className="relative flex-1 max-w-md">
+      {/* Live Search & Filter Bar */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-3.5 rounded-xl border border-gray-200 shadow-2xs">
+        <div className="relative flex-1 max-w-lg">
           <input
             type="text"
-            placeholder="Search headings, text, or fields..."
+            placeholder="Search headings, table data, or extracted values..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="w-full pl-9 pr-8 py-2 text-xs border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition"
@@ -200,12 +243,14 @@ export default function DocumentViewer({ document: doc }) {
           )}
         </div>
 
-        <span className="text-xs font-medium px-2.5 py-1 bg-blue-50 text-blue-700 border border-blue-200 rounded-full self-start sm:self-auto">
-          {searchQuery ? `Showing ${matchCount} of ${totalCount} sections` : `${totalCount} total sections`}
-        </span>
+        <div className="flex items-center space-x-2">
+          <span className="text-xs font-bold px-3 py-1.5 bg-blue-50 text-blue-700 border border-blue-200 rounded-full">
+            {searchQuery ? `Showing ${matchCount} of ${totalCount} sections` : `${totalCount} total sections`}
+          </span>
+        </div>
       </div>
 
-      {/* Unified Hierarchical Accordion Tree (Containing all Headings, Fields, and Tables) */}
+      {/* Unified Hierarchical Tree (All Headings, Fields, Schedules, and Variations) */}
       <SectionTree sections={sections} searchQuery={searchQuery} />
     </div>
   );

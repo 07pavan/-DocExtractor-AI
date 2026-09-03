@@ -14,6 +14,7 @@ function ExtractorApp() {
   const [extractionPhase, setExtractionPhase] = useState('');
   const [error, setError] = useState('');
   const [activeDocument, setActiveDocument] = useState(null);
+  const uploadSectionRef = useRef(null);
   const fileInputRef = useRef(null);
 
   const handleDragOver = (e) => {
@@ -91,10 +92,11 @@ function ExtractorApp() {
         filename: file.name,
       };
 
+      // Transition to Document Viewer View
       setActiveDocument(enrichedDoc);
-      // Reset upload file
       setFile(null);
       if (fileInputRef.current) fileInputRef.current.value = '';
+      window.scrollTo({ top: 0, behavior: 'smooth' });
     } catch (err) {
       setError(err.message || 'An unexpected error occurred during document extraction.');
     } finally {
@@ -110,145 +112,202 @@ function ExtractorApp() {
     return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
   };
 
+  const scrollToUpload = () => {
+    uploadSectionRef.current?.scrollIntoView({ behavior: 'smooth' });
+  };
+
   return (
-    <div className="min-h-screen bg-slate-50/60 flex flex-col">
-      <Navbar />
+    <div className="min-h-screen bg-slate-50 flex flex-col">
+      <Navbar onNewUpload={() => setActiveDocument(null)} />
 
-      <main className="flex-1 max-w-6xl w-full mx-auto p-4 sm:p-6 space-y-6">
-        {/* Hero Banner */}
-        <div className="bg-gradient-to-r from-blue-900 via-indigo-900 to-slate-900 rounded-2xl p-6 sm:p-8 text-white shadow-lg relative overflow-hidden">
-          <div className="relative z-10 max-w-2xl space-y-2">
-            <span className="px-3 py-1 bg-blue-500/30 text-blue-200 border border-blue-400/30 rounded-full text-xs font-semibold uppercase tracking-wider inline-block">
-              ✨ AI Insurance & Legal Document Engine
-            </span>
-            <h2 className="text-2xl sm:text-3xl font-extrabold tracking-tight">
-              Intelligent Document & Schedule Extraction
-            </h2>
-            <p className="text-xs sm:text-sm text-blue-100/80 leading-relaxed">
-              Upload multi-page insurance filings, policies, and contracts. Automatically extract executive summaries, structured form schedules with difference columns, and searchable section hierarchies.
-            </p>
-          </div>
-          {/* Subtle Background Shape */}
-          <div className="absolute right-0 top-0 w-96 h-96 bg-blue-500/10 rounded-full blur-3xl pointer-events-none"></div>
-        </div>
+      <main className="flex-1 max-w-6xl w-full mx-auto p-4 sm:p-6 space-y-8">
+        {/* VIEW 1: ACTIVE DOCUMENT EXTRACTION PAGE (when extraction is complete or selected) */}
+        {activeDocument ? (
+          <DocumentViewer
+            document={activeDocument}
+            onBackToUpload={() => {
+              setActiveDocument(null);
+              window.scrollTo({ top: 0, behavior: 'smooth' });
+            }}
+          />
+        ) : (
+          /* VIEW 2: WELCOME / LANDING & UPLOAD EXPERIENCE */
+          <div className="space-y-8 animate-fadeIn">
+            {/* Welcoming Interactive Hero Banner */}
+            <div className="bg-gradient-to-r from-slate-900 via-indigo-950 to-blue-900 rounded-3xl p-8 sm:p-12 text-white shadow-xl relative overflow-hidden">
+              <div className="relative z-10 max-w-2xl space-y-4">
+                <div className="inline-flex items-center space-x-2 px-3 py-1 bg-blue-500/20 text-blue-200 border border-blue-400/30 rounded-full text-xs font-semibold uppercase tracking-wider backdrop-blur-md">
+                  <span className="w-2 h-2 rounded-full bg-blue-400 animate-ping"></span>
+                  <span>Zero-Hallucination Grounded AI Engine</span>
+                </div>
 
-        {/* Upload & Drag-and-Drop Area */}
-        <div className="bg-white rounded-xl border border-gray-200 p-5 shadow-sm space-y-4">
-          <div className="flex items-center justify-between pb-2 border-b border-gray-100">
-            <h3 className="text-sm font-bold text-gray-800 uppercase tracking-wide">Upload Document</h3>
-            <span className="text-xs text-gray-500">Supports Portrait & Landscape PDFs up to 500+ pages</span>
-          </div>
+                <h2 className="text-3xl sm:text-4xl font-black tracking-tight leading-tight">
+                  Transform Complex Documents into Structured Intelligence.
+                </h2>
 
-          <div
-            onDragOver={handleDragOver}
-            onDragLeave={handleDragLeave}
-            onDrop={handleDrop}
-            onClick={() => !loading && fileInputRef.current?.click()}
-            className={`border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition flex flex-col items-center justify-center space-y-3 ${
-              isDragging
-                ? 'border-blue-500 bg-blue-50/50 scale-[1.005]'
-                : file
-                ? 'border-emerald-400 bg-emerald-50/30'
-                : 'border-gray-300 hover:border-blue-400 bg-gray-50/50 hover:bg-blue-50/20'
-            }`}
-          >
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept=".pdf"
-              onChange={handleFileChange}
-              disabled={loading}
-              className="hidden"
-            />
+                <p className="text-sm sm:text-base text-blue-100/90 leading-relaxed">
+                  Extract multi-page SERFF insurance filings, policy contracts, and financial statements. Grounded citations, type-aware metrics, and consolidated form schedule variations.
+                </p>
 
-            <div className={`w-12 h-12 rounded-full flex items-center justify-center text-2xl transition ${
-              file ? 'bg-emerald-100 text-emerald-700' : 'bg-blue-100 text-blue-700'
-            }`}>
-              {file ? '📄' : '☁️'}
-            </div>
+                {/* Quick Feature Pillars */}
+                <div className="grid grid-cols-3 gap-3 pt-2">
+                  <div className="bg-white/10 backdrop-blur-md p-3 rounded-xl border border-white/10">
+                    <span className="text-lg block mb-1">🎯</span>
+                    <span className="text-xs font-bold block">100% Grounded</span>
+                    <span className="text-[10px] text-blue-200">Zero-hallucination citations</span>
+                  </div>
+                  <div className="bg-white/10 backdrop-blur-md p-3 rounded-xl border border-white/10">
+                    <span className="text-lg block mb-1">⚡</span>
+                    <span className="text-xs font-bold block">Parallel Chunking</span>
+                    <span className="text-[10px] text-blue-200">500+ pages in seconds</span>
+                  </div>
+                  <div className="bg-white/10 backdrop-blur-md p-3 rounded-xl border border-white/10">
+                    <span className="text-lg block mb-1">📊</span>
+                    <span className="text-xs font-bold block">Master Schedules</span>
+                    <span className="text-[10px] text-blue-200">Diff & variation matrices</span>
+                  </div>
+                </div>
 
-            {file ? (
-              <div className="space-y-1">
-                <p className="text-sm font-bold text-gray-900 truncate max-w-md">{file.name}</p>
-                <div className="flex items-center justify-center space-x-2 text-xs text-gray-500">
-                  <span>{formatFileSize(file.size)}</span>
-                  <span>•</span>
-                  <span className="text-emerald-700 font-semibold">Ready to Extract</span>
-                  <span>•</span>
+                <div className="pt-3">
                   <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setFile(null);
-                      if (fileInputRef.current) fileInputRef.current.value = '';
-                    }}
-                    className="text-red-600 hover:underline font-medium"
+                    onClick={scrollToUpload}
+                    className="px-6 py-3 bg-gradient-to-r from-blue-500 to-indigo-600 hover:from-blue-600 hover:to-indigo-700 text-white font-extrabold text-xs sm:text-sm rounded-xl transition shadow-lg flex items-center space-x-2"
                   >
-                    Remove
+                    <span>Upload Your Document Below</span>
+                    <span>↓</span>
                   </button>
                 </div>
               </div>
-            ) : (
-              <div className="space-y-1">
-                <p className="text-sm font-semibold text-gray-700">
-                  <span className="text-blue-600 font-bold">Click to browse</span> or drag and drop your PDF here
-                </p>
-                <p className="text-xs text-gray-400">PDF documents (.pdf)</p>
-              </div>
-            )}
-          </div>
 
-          {/* Error Banner */}
-          {error && (
-            <div className="p-3 bg-red-50 text-red-700 text-xs rounded-lg border border-red-200">
-              {error}
+              {/* Decorative background glow */}
+              <div className="absolute -right-20 -top-20 w-96 h-96 bg-blue-500/20 rounded-full blur-3xl pointer-events-none"></div>
+              <div className="absolute right-40 -bottom-20 w-80 h-80 bg-indigo-500/20 rounded-full blur-3xl pointer-events-none"></div>
             </div>
-          )}
 
-          {/* Action Button & Loading Progress */}
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-1">
-            <button
-              type="button"
-              onClick={handleExtract}
-              disabled={!file || loading}
-              className="w-full sm:w-auto px-6 py-2.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-bold text-xs rounded-lg disabled:opacity-50 disabled:cursor-not-allowed transition shadow-sm flex items-center justify-center space-x-2"
-            >
-              {loading ? (
-                <>
-                  <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
-                  <span>Processing Document...</span>
-                </>
-              ) : (
-                <>
-                  <span>🚀</span>
-                  <span>Extract & Save Document</span>
-                </>
-              )}
-            </button>
+            {/* Document Vault (Past Extractions) */}
+            <Dashboard
+              onSelectDocument={(docDetail) => {
+                setActiveDocument(docDetail);
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+              }}
+              activeDocumentId={activeDocument?.document_id || activeDocument?.id}
+              onDeleteActiveDocument={() => setActiveDocument(null)}
+            />
 
-            {loading && extractionPhase && (
-              <div className="flex items-center space-x-2 text-xs text-blue-700 bg-blue-50 px-3 py-1.5 rounded-lg border border-blue-200 animate-pulse">
-                <span>⏳</span>
-                <span>{extractionPhase}</span>
+            {/* Upload Area (Reached naturally or via scroll) */}
+            <div ref={uploadSectionRef} className="bg-white rounded-2xl border border-gray-200 p-6 sm:p-8 shadow-sm space-y-5">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-gray-100">
+                <div>
+                  <h3 className="text-base font-bold text-gray-900 uppercase tracking-wide">
+                    Upload & Extract New Document
+                  </h3>
+                  <p className="text-xs text-gray-500">
+                    Upload any insurance filing, policy schedule, or legal document for instant parallel extraction.
+                  </p>
+                </div>
+                <span className="text-xs px-2.5 py-1 bg-slate-100 text-slate-700 font-semibold rounded-md self-start sm:self-auto">
+                  PDF Formats (.pdf)
+                </span>
               </div>
-            )}
+
+              <div
+                onDragOver={handleDragOver}
+                onDragLeave={handleDragLeave}
+                onDrop={handleDrop}
+                onClick={() => !loading && fileInputRef.current?.click()}
+                className={`border-2 border-dashed rounded-2xl p-10 text-center cursor-pointer transition flex flex-col items-center justify-center space-y-3.5 ${
+                  isDragging
+                    ? 'border-blue-500 bg-blue-50/60 scale-[1.005]'
+                    : file
+                    ? 'border-emerald-400 bg-emerald-50/40'
+                    : 'border-gray-300 hover:border-blue-400 bg-slate-50/60 hover:bg-blue-50/20'
+                }`}
+              >
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".pdf"
+                  onChange={handleFileChange}
+                  disabled={loading}
+                  className="hidden"
+                />
+
+                <div className={`w-14 h-14 rounded-2xl flex items-center justify-center text-3xl transition shadow-xs ${
+                  file ? 'bg-emerald-100 text-emerald-700' : 'bg-blue-100 text-blue-700'
+                }`}>
+                  {file ? '📄' : '☁️'}
+                </div>
+
+                {file ? (
+                  <div className="space-y-1.5">
+                    <p className="text-sm font-bold text-gray-900 truncate max-w-md">{file.name}</p>
+                    <div className="flex items-center justify-center space-x-2 text-xs text-gray-500">
+                      <span>{formatFileSize(file.size)}</span>
+                      <span>•</span>
+                      <span className="text-emerald-700 font-bold bg-emerald-100 px-2 py-0.5 rounded-full">Ready to Extract</span>
+                      <span>•</span>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setFile(null);
+                          if (fileInputRef.current) fileInputRef.current.value = '';
+                        }}
+                        className="text-red-600 hover:underline font-bold"
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="space-y-1">
+                    <p className="text-sm font-bold text-gray-700">
+                      <span className="text-blue-600">Click to browse</span> or drag and drop your document here
+                    </p>
+                    <p className="text-xs text-gray-400">Supports multi-page landscape and portrait filings</p>
+                  </div>
+                )}
+              </div>
+
+              {/* Error Banner */}
+              {error && (
+                <div className="p-3.5 bg-red-50 text-red-700 text-xs rounded-xl border border-red-200 flex items-center space-x-2">
+                  <span>⚠️</span>
+                  <span>{error}</span>
+                </div>
+              )}
+
+              {/* Action Button & Loading Progress */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={handleExtract}
+                  disabled={!file || loading}
+                  className="w-full sm:w-auto px-8 py-3 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-extrabold text-xs sm:text-sm rounded-xl disabled:opacity-50 disabled:cursor-not-allowed transition shadow-md flex items-center justify-center space-x-2"
+                >
+                  {loading ? (
+                    <>
+                      <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
+                      <span>Processing & Extracting Document...</span>
+                    </>
+                  ) : (
+                    <>
+                      <span>🚀</span>
+                      <span>Extract & View Document Intelligence</span>
+                    </>
+                  )}
+                </button>
+
+                {loading && extractionPhase && (
+                  <div className="flex items-center space-x-2 text-xs text-blue-700 bg-blue-50 px-4 py-2 rounded-xl border border-blue-200 animate-pulse">
+                    <span>⏳</span>
+                    <span className="font-semibold">{extractionPhase}</span>
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
-        </div>
-
-        {/* Active Document Viewer (Tabbed Overview, Schedules & Section Tree) */}
-        {activeDocument && (
-          <DocumentViewer document={activeDocument} />
         )}
-
-        {/* User Document History Dashboard */}
-        <Dashboard
-          onSelectDocument={(docDetail) => {
-            setActiveDocument(docDetail);
-            window.scrollTo({ top: 380, behavior: 'smooth' });
-          }}
-          activeDocumentId={activeDocument?.document_id || activeDocument?.id}
-          onDeleteActiveDocument={() => setActiveDocument(null)}
-        />
       </main>
     </div>
   );
