@@ -1,21 +1,15 @@
 {
-  "//": "Vercel deployment configuration for the React frontend.",
-  "//2": "Place this file in the frontend/ directory or set root to frontend/ in Vercel dashboard.",
-
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
   "installCommand": "npm ci",
   "framework": "vite",
   "devCommand": "npm run dev",
-
   "rewrites": [
     {
-      "//": "SPA fallback — all routes return index.html so React Router works.",
       "source": "/((?!api/.*).*)",
       "destination": "/index.html"
     }
   ],
-
   "headers": [
     {
       "source": "/assets/(.*)",
