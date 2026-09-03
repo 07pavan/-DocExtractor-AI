@@ -22,7 +22,7 @@ class ResilientLLMClient:
 
     def __init__(self):
         self.groq_api_key = os.getenv("GROQ_API_KEY", "").strip()
-        self.groq_model = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile").strip()
+        self.groq_model = os.getenv("GROQ_MODEL", "qwen/qwen3.8-27b").strip()
 
         self.openrouter_api_key = os.getenv("OPENROUTER_API_KEY", "").strip()
         self.openrouter_model = os.getenv("OPENROUTER_MODEL", "qwen/qwen-2.5-72b-instruct").strip()
