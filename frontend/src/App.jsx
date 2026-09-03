@@ -4,21 +4,30 @@ import Navbar from './components/Navbar';
 import Dashboard from './components/Dashboard';
 import DocumentViewer from './components/DocumentViewer';
 
-const API_BASE_URL = (import.meta.env.VITE_API_URL || 'http://localhost:8000').replace(/\/$/, '');
+const ENV_API_URL = import.meta.env.VITE_API_URL ? import.meta.env.VITE_API_URL.replace(/\/$/, '') : '';
 
 async function fetchWithFallback(endpoint, options) {
   const cleanEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
 
-  // Candidate base URLs to try
-  const candidateBases = [
-    API_BASE_URL,
-    'http://localhost:8000',
-    'http://127.0.0.1:8000',
-    '/api',
-  ].filter(Boolean);
+  // If VITE_API_URL is explicitly set (e.g. deployed on Vercel pointing to Render)
+  // try the production API URL first!
+  const candidateBases = [];
 
-  // Remove duplicates
-  const uniqueBases = Array.from(new Set(candidateBases));
+  if (ENV_API_URL) {
+    candidateBases.push(ENV_API_URL);
+  }
+
+  // Local development host candidates
+  if (typeof window !== 'undefined' && window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+    candidateBases.push('http://localhost:8000');
+    candidateBases.push('http://127.0.0.1:8000');
+  }
+
+  // Same-origin /api proxy
+  candidateBases.push('/api');
+
+  // De-duplicate
+  const uniqueBases = Array.from(new Set(candidateBases.filter(Boolean)));
 
   let lastResponse = null;
   let lastError = null;
@@ -27,7 +36,7 @@ async function fetchWithFallback(endpoint, options) {
     const url = `${base.replace(/\/$/, '')}${cleanEndpoint}`;
     try {
       const res = await fetch(url, options);
-      // If we got an actual HTTP response (200, 400, 401, 500, etc.), return it directly!
+      // If we got a valid response (not 404 proxy error), return it
       if (res.status !== 404) {
         return res;
       }
@@ -38,7 +47,7 @@ async function fetchWithFallback(endpoint, options) {
   }
 
   if (lastResponse) return lastResponse;
-  throw lastError || new Error('Backend server is not reachable.');
+  throw lastError || new Error('Backend server is not reachable. Please check that the API service is running.');
 }
 
 function ExtractorApp() {
@@ -136,7 +145,7 @@ function ExtractorApp() {
       console.error('Extraction error:', err);
       setError(
         err.message === 'Failed to fetch' || err.name === 'TypeError'
-          ? 'Backend server is not reachable. Please ensure the backend server is running on port 8000.'
+          ? 'Backend server is not reachable. If recently deployed to Render, please allow 30–50 seconds for the free instance to spin up.'
           : (err.message || 'An unexpected error occurred during document extraction.')
       );
     } finally {

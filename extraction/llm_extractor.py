@@ -7,10 +7,9 @@ Architecture (Two-Pass):
 
   Pass 2 (Grounded Extraction — LLM):
       Sends the verbatim text of key and summary-relevant pages in a compact,
-      token-efficient digest (staying comfortably under Groq's 6,000 token limit
-      to execute in 1-2 seconds with zero 413 rate limit fallbacks).
-      The vector table parser and parallel extraction engine still extract 100%
-      of all pages and vector tables concurrently!
+      token-efficient digest (staying comfortably under Groq's token limits).
+      Always falls back gracefully to deterministic heuristic extraction if LLM
+      provider is unreachable.
 """
 
 from __future__ import annotations
@@ -31,6 +30,12 @@ from extraction.schedule_consolidator import consolidate_schedule_tables
 from extraction.llm_client import llm_client
 from extraction.document_classifier import classify_document
 from extraction.schema_registry import get_schema, get_field_map
+from extraction.heading_detector import (
+    extract_raw_lines_from_pdf,
+    detect_and_mark_boilerplate,
+    classify_lines,
+)
+from extraction.field_parser import extract_fields_from_body_lines
 
 logger = logging.getLogger("extraction.llm_extractor")
 
@@ -44,170 +49,157 @@ def process_page_chunk(pdf_bytes: bytes, page_indices: List[int]) -> Dict[str, A
     across threads) and extracts raw text + vector tables for the given pages.
     """
     doc = fitz.open(stream=pdf_bytes, filetype="pdf")
-    chunk_texts: List[Dict[str, Any]] = []
+    chunk_texts: Dict[int, str] = {}
     chunk_tables: List[Dict[str, Any]] = []
 
     try:
-        for idx in page_indices:
-            if idx < len(doc):
-                page = doc[idx]
-                page_num = idx + 1
-                text = page.get_text().strip()
-                tables = detect_tables(page, page_num=page_num)
+        for p_idx in page_indices:
+            if p_idx >= len(doc):
+                continue
+            page = doc[p_idx]
+            page_num = p_idx + 1
 
-                chunk_texts.append({"page": page_num, "text": text})
-                chunk_tables.extend(tables)
+            # 1. Extract text
+            text = page.get_text("text") or ""
+            chunk_texts[page_num] = text
+
+            # 2. Extract vector tables using table_detector (returns list of dicts)
+            tables = detect_tables(page, page_num=page_num)
+            for t in tables:
+                chunk_tables.append(t)
     finally:
         doc.close()
 
-    return {"texts": chunk_texts, "tables": chunk_tables}
+    return {
+        "texts": chunk_texts,
+        "tables": chunk_tables,
+    }
 
 
-def parallel_extract_full_text_and_tables(
+def parallel_extract_all_pages(
     pdf_bytes: bytes,
-    batch_size: int = 15,
-    max_workers: int = 6,
-) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
-    """Extracts raw text and tables across ALL pages concurrently.
+    total_pages: int,
+    max_workers: int = 8,
+) -> Tuple[Dict[int, str], List[Dict[str, Any]]]:
+    """Extracts raw text and vector tables from ALL pages concurrently."""
+    if total_pages <= 0:
+        return {}, []
 
-    Guarantees 100% page coverage — no page is sampled or skipped.
-    Pages are reassembled in strict chronological order after parallel execution.
-    """
-    doc = fitz.open(stream=pdf_bytes, filetype="pdf")
-    total_pages = len(doc)
-    doc.close()
-
-    if total_pages == 0:
-        return [], []
-
-    # Small documents (≤ 5 pages): skip thread overhead, run on main thread
-    if total_pages <= 5:
-        result = process_page_chunk(pdf_bytes, list(range(total_pages)))
-        return result["texts"], result["tables"]
-
-    # Partition all page indices into batches
-    batches: List[List[int]] = [
-        list(range(i, min(i + batch_size, total_pages)))
-        for i in range(0, total_pages, batch_size)
+    # Partition page indices into chunks for workers
+    chunk_size = max(1, (total_pages + max_workers - 1) // max_workers)
+    chunks = [
+        list(range(i, min(i + chunk_size, total_pages)))
+        for i in range(0, total_pages, chunk_size)
     ]
 
-    all_page_texts: List[Dict[str, Any]] = []
-    all_tables: List[Dict[str, Any]] = []
+    page_texts: Dict[int, str] = {}
+    detected_tables: List[Dict[str, Any]] = []
 
-    num_workers = min(max_workers, len(batches))
-    with concurrent.futures.ThreadPoolExecutor(max_workers=num_workers) as executor:
-        futures = {
-            executor.submit(process_page_chunk, pdf_bytes, batch): batch
-            for batch in batches
-        }
-        for future in concurrent.futures.as_completed(futures):
+    with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = [
+            executor.submit(process_page_chunk, pdf_bytes, chunk)
+            for chunk in chunks
+        ]
+        for f in concurrent.futures.as_completed(futures):
             try:
-                res = future.result()
-                all_page_texts.extend(res["texts"])
-                all_tables.extend(res["tables"])
-            except Exception as exc:
-                logger.error("Error in parallel page chunk: %s", str(exc))
+                res = f.result()
+                page_texts.update(res["texts"])
+                detected_tables.extend(res["tables"])
+            except Exception as e:
+                logger.warning("Error processing page chunk: %s", str(e))
 
-    # Re-sort into strict chronological page order
-    all_page_texts.sort(key=lambda x: x["page"])
-    all_tables.sort(key=lambda x: x["page"])
-
-    return all_page_texts, all_tables
+    # Sort tables by page number
+    detected_tables.sort(key=lambda t: t.get("page", 0))
+    return page_texts, detected_tables
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# TOKEN-EFFICIENT PAGE DIGEST BUILDER (Ultra-Fast & Grounded)
+# TOKEN-EFFICIENT DIGEST BUILDER
 # ─────────────────────────────────────────────────────────────────────────────
 
-def build_compact_page_digest(page_texts: List[Dict[str, Any]], total_pages: int, max_total_chars: int = 8000) -> str:
-    """Builds a token-efficient verbatim digest of key pages so the LLM call
-    fits comfortably within Groq's high-speed inference tier (< 4000 tokens).
-    
-    For small docs (<= 8 pages): includes 100% of text from all pages.
-    For large docs (> 8 pages): prioritizes opening pages (1-5), middle filing
-    pages, and closing disposition pages where metadata and schedules live.
-    """
-    if total_pages <= 8:
-        pages_to_include = set(range(1, total_pages + 1))
-    else:
-        mid = total_pages // 2
-        pages_to_include = {1, 2, 3, 4, 5, mid - 1, mid, total_pages - 1, total_pages}
+def build_compact_page_digest(
+    page_texts: Dict[int, str],
+    total_pages: int,
+    max_total_chars: int = 8000,
+) -> str:
+    """Builds a compact digest prioritizing front matter, summary, and closing pages."""
+    priority_pages = [1, 2, 3]
+    if total_pages > 5:
+        priority_pages.extend([4, 5])
+    if total_pages > 6:
+        priority_pages.append(total_pages)
 
-    parts: List[str] = []
-    current_chars = 0
+    unique_pages = sorted(list(set(p for p in priority_pages if p in page_texts)))
+    chars_per_page = max(500, max_total_chars // len(unique_pages)) if unique_pages else 1000
 
-    for p in page_texts:
-        if p["page"] in pages_to_include:
-            page_text = p.get("text", "").strip()
-            if not page_text:
-                continue
-            # Cap each page at 1000 chars to avoid overflowing token budget
-            if len(page_text) > 1000:
-                page_text = page_text[:1000].rsplit(" ", 1)[0] + "..."
-            
-            snippet = f"=== PAGE {p['page']} ===\n{page_text}"
-            if current_chars + len(snippet) > max_total_chars:
-                break
-            parts.append(snippet)
-            current_chars += len(snippet)
+    digest_parts: List[str] = []
+    total_chars = 0
 
-    return "\n\n".join(parts)
+    for p in unique_pages:
+        raw_text = page_texts.get(p, "").strip()
+        if not raw_text:
+            continue
+
+        cleaned = "\n".join(
+            line.strip()
+            for line in raw_text.splitlines()
+            if line.strip() and not line.strip().isdigit()
+        )
+        clipped = cleaned[:chars_per_page]
+
+        part = f"--- [PAGE {p}] ---\n{clipped}"
+        if total_chars + len(part) > max_total_chars:
+            break
+        digest_parts.append(part)
+        total_chars += len(part)
+
+    return "\n\n".join(digest_parts)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# GROUNDED LLM EXTRACTION (Pass 2)
+# GROUNDED LLM PROMPT BUILDER
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _build_grounded_system_prompt(doc_type: str, schema: Dict[str, Any]) -> str:
-    """Builds the strict grounded extraction system prompt for the given doc type."""
-    field_list = "\n".join(
-        f'    "{f["key"]}": null or "exact verbatim value from document"'
-        for f in schema.get("fields", [])
-    )
-    instructions = schema.get("llm_instructions", "")
+    fields_desc = []
+    for f in schema.get("fields", []):
+        fields_desc.append(
+            f'  - "{f["key"]}": ({f["label"]}) [{f["type"]}] -> If not explicitly found, MUST be null (anti-hallucination)'
+        )
+    fields_text = "\n".join(fields_desc)
 
-    return f"""You are a high-speed, zero-hallucination document extraction engine.
+    return f"""You are a high-speed, zero-hallucination document intelligence engine.
+Analyze the provided document text for document archetype: {doc_type} ({schema.get('display_name')}).
 
-DOCUMENT TYPE: {schema.get("display_name", doc_type)}
+CRITICAL ZERO-HALLUCINATION RULES:
+1. Extract verbatim data from the text. NEVER fabricate or invent tracking numbers, dates, or values.
+2. If a field is not explicitly present in the text, set its value to null.
+3. For every non-null field, you MUST provide source evidence:
+   "source_evidence": {{
+     "<field_key>": {{"source_page": <int>, "source_text": "<exact verbatim quote up to 60 chars>"}}
+   }}
 
-ANTI-HALLUCINATION CONTRACT:
-1. Only populate a field if its value appears VERBATIM in the provided text.
-2. If a value CANNOT be found, you MUST output null for that field.
-3. NEVER infer, guess, or create placeholder values.
-4. For each non-null field, include source_page (integer) and source_text (verbatim snippet).
-
-{instructions}
-
-JSON OUTPUT SCHEMA:
+Return STRICT JSON matching this exact structure:
 {{
-  "doc_type": "{doc_type}",
+  "overview": "<2-3 sentence factual executive summary of the filing/contract>",
+  "key_points": ["<Key factual point 1>", "<Key factual point 2>", "<Key factual point 3>"],
   "metadata": {{
-{field_list}
+    {fields_text}
   }},
   "source_evidence": {{
-    "field_key": {{
-      "source_page": <integer or null>,
-      "source_text": "<verbatim snippet or null>"
-    }}
+    "<field_key>": {{"source_page": 1, "source_text": "quote"}}
   }},
-  "overview": "2-3 sentence factual description from the document.",
-  "key_points": [
-    "Key highlight 1",
-    "Key highlight 2"
-  ],
   "sections": [
     {{
-      "heading": "Section heading",
+      "heading": "<Section title>",
       "level": 1,
-      "page": 1,
-      "text": "Summary or body text",
-      "fields": [{{"label": "Label", "value": "Value"}}],
-      "tables": [],
-      "subsections": []
+      "page": <page number>,
+      "text": "<verbatim section text summary>",
+      "fields": [{{"label": "<Field Name>", "value": "<Verbatim Value>"}}],
+      "tables": []
     }}
   ]
-}}
-RESPOND WITH ONLY VALID JSON."""
+}}"""
 
 
 def grounded_llm_extraction(
@@ -237,13 +229,13 @@ def grounded_llm_extraction(
             messages, json_mode=True, max_tokens=3000
         )
     except Exception as e:
-        logger.warning("generate_chat_completion returned error: %s", str(e))
+        logger.warning("generate_chat_completion error: %s", str(e))
         return {}
 
     if not response_text:
         return {}
 
-    # Attempt to repair and parse JSON
+    # Attempt to parse JSON
     try:
         from json_repair import repair_json
         repaired = repair_json(response_text, return_objects=True)
@@ -253,64 +245,96 @@ def grounded_llm_extraction(
         pass
 
     try:
-        parsed = json.loads(response_text)
-        if isinstance(parsed, dict):
-            return parsed
+        return json.loads(response_text)
     except Exception:
-        pass
-
-    return {}
+        return {}
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# MAIN ENTRY POINT
+# HEURISTIC FALLBACK TREE BUILDER
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _build_heuristic_section_tree(pdf_bytes: bytes, doc_title: str) -> List[Dict[str, Any]]:
+    """Deterministic heuristic fallback when LLM is unavailable."""
+    doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+    try:
+        raw_lines, median_font_size = extract_raw_lines_from_pdf(doc)
+        detect_and_mark_boilerplate(raw_lines, num_pages=len(doc))
+        processed_lines, _ = classify_lines(raw_lines, median_font_size)
+
+        sections: List[Dict[str, Any]] = []
+        current_node = {"heading": "Document Content", "level": 1, "page": 1, "text": "", "fields": [], "tables": []}
+        body_lines: List[str] = []
+
+        for line in processed_lines:
+            if line.is_boilerplate:
+                continue
+            if line.is_heading:
+                if body_lines:
+                    fields, clean_text = extract_fields_from_body_lines(body_lines)
+                    current_node["fields"] = [f.to_dict() for f in fields]
+                    current_node["text"] = clean_text
+                    sections.append(current_node)
+                    body_lines = []
+                current_node = {
+                    "heading": line.text.strip(),
+                    "level": line.heading_level or 1,
+                    "page": line.page_num,
+                    "text": "",
+                    "fields": [],
+                    "tables": [],
+                }
+            else:
+                body_lines.append(line.text)
+
+        if body_lines or current_node:
+            fields, clean_text = extract_fields_from_body_lines(body_lines)
+            current_node["fields"] = [f.to_dict() for f in fields]
+            current_node["text"] = clean_text
+            sections.append(current_node)
+
+        return sections
+    finally:
+        doc.close()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# MAIN MULTI-PASS EXTRACTION ENTRY POINT
 # ─────────────────────────────────────────────────────────────────────────────
 
 def extract_with_llm(pdf_bytes: bytes, filename: str = "document.pdf") -> Dict[str, Any]:
-    """Two-pass grounded extraction pipeline:
-
-    Pass 1 — Classify (zero LLM cost, pure regex):
-        Detects doc_type from first 5 pages. Selects the correct field schema.
-
-    Pass 2 — Extract (LLM call, fully grounded):
-        Runs parallel vector table extraction on 100% of pages.
-        Sends compact digest to Groq for ultra-fast (1-2s) execution.
-        Every extracted field cites source_page + source_text.
-
-    Returns the unified structured document tree for the frontend.
+    """Full extraction pipeline with parallel page extraction, schema binding,
+    consolidated schedule tables, and guaranteed fallback.
     """
-    doc = fitz.open(stream=pdf_bytes, filetype="pdf")
-    total_pages = len(doc)
-    doc.close()
+    doc_meta = fitz.open(stream=pdf_bytes, filetype="pdf")
+    total_pages = len(doc_meta)
+    doc_meta.close()
 
-    if total_pages == 0:
-        return SectionNode(heading="Document", level=0, page=1).to_dict()
-
-    # ── Step 1: Parallel extraction of 100% of pages + tables ─────────────────
-    page_texts, detected_tables = parallel_extract_full_text_and_tables(
-        pdf_bytes=pdf_bytes,
-        batch_size=15,
-        max_workers=6,
+    # ── Step 1: Parallel extraction of text & vector tables across all pages ──
+    page_texts, detected_tables = parallel_extract_all_pages(
+        pdf_bytes, total_pages=total_pages, max_workers=8
     )
 
-    # ── Step 2: Document classification (NO LLM — pure regex signal matching) ─
-    classification = classify_document(page_texts, max_pages=5)
+    # ── Step 2: Zero-cost archetype classification ───────────────────────────
+    # Format page_texts as list of dicts for classify_document
+    page_items = [{"page": p, "text": t} for p, t in page_texts.items()]
+    classification = classify_document(page_items)
     doc_type = classification["doc_type"]
     schema = get_schema(doc_type)
 
     # ── Step 3: Build compact token-efficient page digest ─────────────────────
     compact_digest = build_compact_page_digest(page_texts, total_pages=total_pages, max_total_chars=8000)
 
-    # Format vector tables as a compact reference string (first 5 tables preview)
     tables_lines: List[str] = []
     for idx, t in enumerate(detected_tables[:5], start=1):
-        preview = t["rows"][:2]
+        preview = t.get("rows", [])[:2]
         tables_lines.append(
-            f"Table #{idx} (Page {t['page']}, {len(t['rows'])} rows): {json.dumps(preview)}"
+            f"Table #{idx} (Page {t.get('page', 1)}, {len(t.get('rows', []))} rows): {json.dumps(preview)}"
         )
     tables_text = "\n".join(tables_lines)
 
-    # ── Step 4: Grounded LLM extraction (Groq primary, ultra-fast) ───────────
+    # ── Step 4: Grounded LLM extraction ──────────────────────────────────────
+    llm_result = {}
     try:
         llm_result = grounded_llm_extraction(
             doc_type=doc_type,
@@ -321,8 +345,7 @@ def extract_with_llm(pdf_bytes: bytes, filename: str = "document.pdf") -> Dict[s
             total_pages=total_pages,
         )
     except Exception as exc:
-        logger.error("LLM extraction failed: %s — using heuristic fallback", str(exc))
-        llm_result = {}
+        logger.warning("LLM extraction failed (%s). Using heuristic fallback.", str(exc))
 
     if not isinstance(llm_result, dict):
         llm_result = {}
@@ -334,6 +357,10 @@ def extract_with_llm(pdf_bytes: bytes, filename: str = "document.pdf") -> Dict[s
     metadata_raw = llm_result.get("metadata") or {}
     source_evidence = llm_result.get("source_evidence") or {}
     sections_data: List[Dict[str, Any]] = llm_result.get("sections") or []
+
+    # If LLM didn't return sections, generate from PyMuPDF layout heuristics
+    if not sections_data:
+        sections_data = _build_heuristic_section_tree(pdf_bytes, filename)
 
     # Enrich metadata fields with type info from schema + source evidence
     enriched_metadata: Dict[str, Any] = {}
@@ -356,7 +383,7 @@ def extract_with_llm(pdf_bytes: bytes, filename: str = "document.pdf") -> Dict[s
         "doc_type": doc_type,
         "doc_type_display": schema.get("display_name", doc_type),
         "classification_confidence": classification.get("confidence", 1.0),
-        "overview": llm_result.get("overview"),
+        "overview": llm_result.get("overview") or f"Document extracted: {filename} ({total_pages} pages).",
         "key_points": llm_result.get("key_points") or [],
         "metadata": enriched_metadata,
         "kpi_keys": schema.get("kpi_keys") or [],
