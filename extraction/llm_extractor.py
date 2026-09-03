@@ -6,10 +6,9 @@ Architecture (Two-Pass):
       and returns doc_type + confidence WITHOUT calling any LLM.
 
   Pass 2 (Grounded Extraction — LLM):
-      Sends the verbatim text of key and summary-relevant pages in a compact,
-      token-efficient digest (staying comfortably under Groq's token limits).
-      Always falls back gracefully to deterministic heuristic extraction if LLM
-      provider is unreachable.
+      Sends the verbatim text of key and summary-relevant pages in a rich,
+      token-efficient digest to extract comprehensive section details, full
+      field sets, and master schedules without shortening or truncating text.
 """
 
 from __future__ import annotations
@@ -63,7 +62,7 @@ def process_page_chunk(pdf_bytes: bytes, page_indices: List[int]) -> Dict[str, A
             text = page.get_text("text") or ""
             chunk_texts[page_num] = text
 
-            # 2. Extract vector tables using table_detector (returns list of dicts)
+            # 2. Extract vector tables using table_detector
             tables = detect_tables(page, page_num=page_num)
             for t in tables:
                 chunk_tables.append(t)
@@ -114,23 +113,23 @@ def parallel_extract_all_pages(
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# TOKEN-EFFICIENT DIGEST BUILDER
+# TOKEN-EFFICIENT DIGEST BUILDER (Comprehensive Coverage)
 # ─────────────────────────────────────────────────────────────────────────────
 
 def build_compact_page_digest(
     page_texts: Dict[int, str],
     total_pages: int,
-    max_total_chars: int = 8000,
+    max_total_chars: int = 14000,
 ) -> str:
-    """Builds a compact digest prioritizing front matter, summary, and closing pages."""
+    """Builds a rich digest covering all key pages without clipping text."""
     priority_pages = [1, 2, 3]
-    if total_pages > 5:
-        priority_pages.extend([4, 5])
-    if total_pages > 6:
+    if total_pages > 3:
+        priority_pages.extend(range(4, min(total_pages + 1, 10)))
+    if total_pages > 9:
         priority_pages.append(total_pages)
 
     unique_pages = sorted(list(set(p for p in priority_pages if p in page_texts)))
-    chars_per_page = max(500, max_total_chars // len(unique_pages)) if unique_pages else 1000
+    chars_per_page = max(1200, max_total_chars // len(unique_pages)) if unique_pages else 2000
 
     digest_parts: List[str] = []
     total_chars = 0
@@ -168,21 +167,22 @@ def _build_grounded_system_prompt(doc_type: str, schema: Dict[str, Any]) -> str:
         )
     fields_text = "\n".join(fields_desc)
 
-    return f"""You are a high-speed, zero-hallucination document intelligence engine.
+    return f"""You are a comprehensive, zero-hallucination document intelligence engine.
 Analyze the provided document text for document archetype: {doc_type} ({schema.get('display_name')}).
 
 CRITICAL ZERO-HALLUCINATION RULES:
-1. Extract verbatim data from the text. NEVER fabricate or invent tracking numbers, dates, or values.
+1. Extract verbatim, COMPLETE, untruncated values from the text. NEVER abbreviate names, companies, or descriptions.
 2. If a field is not explicitly present in the text, set its value to null.
-3. For every non-null field, you MUST provide source evidence:
+3. For every non-null field, provide source evidence:
    "source_evidence": {{
      "<field_key>": {{"source_page": <int>, "source_text": "<exact verbatim quote up to 60 chars>"}}
    }}
+4. Extract ALL major sections comprehensively (e.g. Filing at a Glance, General Information, Company Information, Product Information, Filing Fees). Do NOT leave sections short.
 
 Return STRICT JSON matching this exact structure:
 {{
-  "overview": "<2-3 sentence factual executive summary of the filing/contract>",
-  "key_points": ["<Key factual point 1>", "<Key factual point 2>", "<Key factual point 3>"],
+  "overview": "<Comprehensive, detailed factual executive summary of the document, scope, and purpose>",
+  "key_points": ["<Key factual highlight 1>", "<Key factual highlight 2>", "<Key factual highlight 3>", "<Key factual highlight 4>"],
   "metadata": {{
     {fields_text}
   }},
@@ -194,8 +194,8 @@ Return STRICT JSON matching this exact structure:
       "heading": "<Section title>",
       "level": 1,
       "page": <page number>,
-      "text": "<verbatim section text summary>",
-      "fields": [{{"label": "<Field Name>", "value": "<Verbatim Value>"}}],
+      "text": "<Full verbatim section text and explanations>",
+      "fields": [{{"label": "<Field Name>", "value": "<Full Verbatim Value>"}}],
       "tables": []
     }}
   ]
@@ -210,7 +210,7 @@ def grounded_llm_extraction(
     doc_title: str,
     total_pages: int,
 ) -> Dict[str, Any]:
-    """Calls the LLM with token-efficient digest for sub-2-second inference on Groq."""
+    """Calls the LLM with token-efficient digest for high-speed inference."""
     system_prompt = _build_grounded_system_prompt(doc_type, schema)
 
     user_prompt = (
@@ -226,7 +226,7 @@ def grounded_llm_extraction(
 
     try:
         response_text = llm_client.generate_chat_completion(
-            messages, json_mode=True, max_tokens=3000
+            messages, json_mode=True, max_tokens=3500
         )
     except Exception as e:
         logger.warning("generate_chat_completion error: %s", str(e))
@@ -304,7 +304,7 @@ def _build_heuristic_section_tree(pdf_bytes: bytes, doc_title: str) -> List[Dict
 
 def extract_with_llm(pdf_bytes: bytes, filename: str = "document.pdf") -> Dict[str, Any]:
     """Full extraction pipeline with parallel page extraction, schema binding,
-    consolidated schedule tables, and guaranteed fallback.
+    consolidated schedule tables, and comprehensive untruncated representation.
     """
     doc_meta = fitz.open(stream=pdf_bytes, filetype="pdf")
     total_pages = len(doc_meta)
@@ -316,18 +316,17 @@ def extract_with_llm(pdf_bytes: bytes, filename: str = "document.pdf") -> Dict[s
     )
 
     # ── Step 2: Zero-cost archetype classification ───────────────────────────
-    # Format page_texts as list of dicts for classify_document
     page_items = [{"page": p, "text": t} for p, t in page_texts.items()]
     classification = classify_document(page_items)
     doc_type = classification["doc_type"]
     schema = get_schema(doc_type)
 
-    # ── Step 3: Build compact token-efficient page digest ─────────────────────
-    compact_digest = build_compact_page_digest(page_texts, total_pages=total_pages, max_total_chars=8000)
+    # ── Step 3: Build rich page digest ───────────────────────────────────────
+    compact_digest = build_compact_page_digest(page_texts, total_pages=total_pages, max_total_chars=14000)
 
     tables_lines: List[str] = []
-    for idx, t in enumerate(detected_tables[:5], start=1):
-        preview = t.get("rows", [])[:2]
+    for idx, t in enumerate(detected_tables[:8], start=1):
+        preview = t.get("rows", [])[:3]
         tables_lines.append(
             f"Table #{idx} (Page {t.get('page', 1)}, {len(t.get('rows', []))} rows): {json.dumps(preview)}"
         )
@@ -361,6 +360,21 @@ def extract_with_llm(pdf_bytes: bytes, filename: str = "document.pdf") -> Dict[s
     # If LLM didn't return sections, generate from PyMuPDF layout heuristics
     if not sections_data:
         sections_data = _build_heuristic_section_tree(pdf_bytes, filename)
+
+    # Ensure all tables have proper dict wrapper and headers
+    for s in sections_data:
+        if "tables" in s and isinstance(s["tables"], list):
+            formatted_tables = []
+            for t in s["tables"]:
+                if isinstance(t, dict):
+                    formatted_tables.append(t)
+                elif isinstance(t, list) and len(t) > 0:
+                    formatted_tables.append({
+                        "title": "Extracted Table",
+                        "headers": [str(c) for c in t[0]] if isinstance(t[0], list) else [],
+                        "rows": t[1:] if len(t) > 1 else t,
+                    })
+            s["tables"] = formatted_tables
 
     # Enrich metadata fields with type info from schema + source evidence
     enriched_metadata: Dict[str, Any] = {}

@@ -1,5 +1,5 @@
 """Schedule Consolidator for Multi-Page & Landscape Tables.
-Aggregates repeating schedule tables across all pages into clean master tables.
+Aggregates repeating schedule tables across all pages into clean master tables without truncating names.
 """
 
 from __future__ import annotations
@@ -16,7 +16,7 @@ def clean_str(val: Any) -> str:
 
 def consolidate_schedule_tables(detected_tables: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """Scans all tables across all pages, identifies repeating multi-page schedules,
-    and consolidates them into clean master tables without artificial variation columns.
+    and consolidates them into clean master tables with FULL verbatim strings.
     """
     form_schedule_rows: List[List[str]] = []
     supp_doc_rows: List[List[str]] = []
@@ -24,8 +24,8 @@ def consolidate_schedule_tables(detected_tables: List[Dict[str, Any]]) -> List[D
     seen_signatures = set()
 
     for tab in detected_tables:
-        page_num = tab["page"]
-        rows = tab["rows"]
+        page_num = tab.get("page", 1)
+        rows = tab.get("rows", [])
         if not rows:
             continue
 
@@ -54,18 +54,18 @@ def consolidate_schedule_tables(detected_tables: List[Dict[str, Any]]) -> List[D
                 if "item no" in item_no.lower() or "form schedule" in item_no.lower():
                     continue
 
-                # If this is a valid data row
-                if item_no.isdigit() or form_number or len(form_name) > 10:
-                    short_form_name = form_name[:120]
+                # If this is a valid data row (Keep full verbatim form name without truncation)
+                if item_no.isdigit() or form_number or len(form_name) > 3:
+                    full_form_name = form_name
 
                     # Deduplicate exact duplicate items
-                    sig = (item_no, form_name, form_number, attachment, submitted)
+                    sig = (item_no, full_form_name, form_number, attachment, submitted)
                     if sig not in seen_signatures:
                         seen_signatures.add(sig)
 
                         form_schedule_rows.append([
                             item_no if item_no else "1",
-                            short_form_name,
+                            full_form_name,
                             form_number,
                             form_type or "Form",
                             form_action or "Filing",
@@ -91,7 +91,7 @@ def consolidate_schedule_tables(detected_tables: List[Dict[str, Any]]) -> List[D
 
     consolidated: List[Dict[str, Any]] = []
 
-    # 1. Master Form Schedule Table
+    # 1. Master Form Schedule Table (ALL rows, full length)
     if form_schedule_rows:
         consolidated.append({
             "title": f"Consolidated Form Schedule ({len(form_schedule_rows)} Items)",
@@ -108,12 +108,12 @@ def consolidate_schedule_tables(detected_tables: List[Dict[str, Any]]) -> List[D
             "rows": form_schedule_rows,
         })
 
-    # 2. Master Supporting Document Schedule
+    # 2. Master Supporting Document Schedule (ALL rows)
     if supp_doc_rows:
         consolidated.append({
             "title": f"Supporting Document Schedules ({len(supp_doc_rows)} Items)",
             "headers": ["Schedule Item / Status", "Document Name / Details", "Category"],
-            "rows": supp_doc_rows[:50],
+            "rows": supp_doc_rows,
         })
 
     return consolidated
