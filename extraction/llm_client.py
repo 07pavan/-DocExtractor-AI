@@ -1,5 +1,6 @@
 """Resilient Multi-Provider LLM Client.
 Attempts primary calls via Groq, automatically falling back to OpenRouter upon errors/rate limits.
+Always reads environment variables dynamically to ensure fresh keys are loaded.
 """
 
 from __future__ import annotations
@@ -20,40 +21,48 @@ class ResilientLLMClient:
     Fallback: OpenRouter (Qwen / Claude / Llama)
     """
 
-    def __init__(self):
-        self.groq_api_key = os.getenv("GROQ_API_KEY", "").strip()
-        self.groq_model = os.getenv("GROQ_MODEL", "qwen/qwen3.8-27b").strip()
+    @property
+    def groq_api_key(self) -> str:
+        return os.getenv("GROQ_API_KEY", "").strip()
 
-        self.openrouter_api_key = os.getenv("OPENROUTER_API_KEY", "").strip()
-        self.openrouter_model = os.getenv("OPENROUTER_MODEL", "qwen/qwen-2.5-72b-instruct").strip()
+    @property
+    def groq_model(self) -> str:
+        return os.getenv("GROQ_MODEL", "qwen/qwen3.8-27b").strip()
 
-        self._groq_client = None
-        self._openrouter_client = None
+    @property
+    def openrouter_api_key(self) -> str:
+        return os.getenv("OPENROUTER_API_KEY", "").strip()
+
+    @property
+    def openrouter_model(self) -> str:
+        return os.getenv("OPENROUTER_MODEL", "qwen/qwen-2.5-72b-instruct").strip()
 
     def is_available(self) -> bool:
         """Returns True if at least one LLM provider is configured."""
         return bool(self.groq_api_key or self.openrouter_api_key)
 
     def _get_groq_client(self):
-        if self._groq_client is None and self.groq_api_key:
+        key = self.groq_api_key
+        if key:
             try:
                 from groq import Groq
-                self._groq_client = Groq(api_key=self.groq_api_key)
+                return Groq(api_key=key)
             except Exception as e:
                 logger.warning("Failed to initialize Groq client: %s", str(e))
-        return self._groq_client
+        return None
 
     def _get_openrouter_client(self):
-        if self._openrouter_client is None and self.openrouter_api_key:
+        key = self.openrouter_api_key
+        if key:
             try:
                 from openai import OpenAI
-                self._openrouter_client = OpenAI(
+                return OpenAI(
                     base_url="https://openrouter.ai/api/v1",
-                    api_key=self.openrouter_api_key,
+                    api_key=key,
                 )
             except Exception as e:
                 logger.warning("Failed to initialize OpenRouter client: %s", str(e))
-        return self._openrouter_client
+        return None
 
     def generate_chat_completion(
         self,
