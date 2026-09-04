@@ -1,6 +1,6 @@
 import KpiStrip from './KpiStrip';
 
-export default function SummaryCard({ summary }) {
+export default function SummaryCard({ summary, onCitationClick }) {
   if (!summary) return null;
 
   const {
@@ -17,7 +17,7 @@ export default function SummaryCard({ summary }) {
   return (
     <div className="card-specify space-y-6">
       {/* 1. Top KPI Metrics */}
-      <KpiStrip summary={summary} />
+      <KpiStrip summary={summary} onCitationClick={onCitationClick} />
 
       {/* 2. Executive Overview Callout */}
       {overview ? (
@@ -64,12 +64,14 @@ export default function SummaryCard({ summary }) {
                         {field.value}
                       </span>
                       {field.source_page && (
-                        <span
-                          className="text-[9px] px-1.5 py-0.5 bg-lilac-wash text-iris rounded-control font-semibold flex-shrink-0"
-                          title={field.source_text || `Found on page ${field.source_page}`}
+                        <button
+                          type="button"
+                          onClick={() => onCitationClick && onCitationClick(field.source_page, field.source_text || field.value)}
+                          className="text-[9px] px-1.5 py-0.5 bg-lilac-wash hover:bg-iris hover:text-white text-iris rounded-control font-semibold flex-shrink-0 transition cursor-pointer"
+                          title={field.source_text ? `Jump to Page ${field.source_page}: "${field.source_text}"` : `Jump to Page ${field.source_page}`}
                         >
-                          p.{field.source_page}
-                        </span>
+                          p.{field.source_page} ↗
+                        </button>
                       )}
                     </div>
                   )}

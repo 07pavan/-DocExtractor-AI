@@ -6,14 +6,23 @@ export function sectionMatchesSearch(section, query) {
   if (!query) return true;
   const q = query.toLowerCase();
 
-  if (section.heading && section.heading.toLowerCase().includes(q)) return true;
+  const title = section.title || section.heading || '';
+  if (title.toLowerCase().includes(q)) return true;
   if (section.text && section.text.toLowerCase().includes(q)) return true;
-  if (section.fields && section.fields.some((f) => 
-    (f.label && f.label.toLowerCase().includes(q)) || 
-    (f.value && f.value.toLowerCase().includes(q))
-  )) {
-    return true;
+
+  if (section.fields) {
+    if (Array.isArray(section.fields)) {
+      if (section.fields.some((f) => 
+        (f.label && f.label.toLowerCase().includes(q)) || 
+        (f.value && f.value.toLowerCase().includes(q))
+      )) return true;
+    } else if (typeof section.fields === 'object') {
+      if (Object.entries(section.fields).some(([k, v]) => 
+        k.toLowerCase().includes(q) || String(v).toLowerCase().includes(q)
+      )) return true;
+    }
   }
+
   if (section.subsections && section.subsections.some((sub) => sectionMatchesSearch(sub, query))) {
     return true;
   }
@@ -42,8 +51,19 @@ export default function SectionNode({ section, searchQuery = '', depth = 0 }) {
     return null;
   }
 
+  const title = section.title || section.heading || 'Untitled Section';
+  const confidence = section.confidence !== undefined ? section.confidence : null;
+  const sectionType = section.section_type || null;
+
+  // Normalize fields into array of { label, value }
+  const normalizedFields = Array.isArray(section.fields)
+    ? section.fields
+    : typeof section.fields === 'object' && section.fields !== null
+    ? Object.entries(section.fields).map(([label, value]) => ({ label, value: String(value ?? '') }))
+    : [];
+
   const hasContent = 
-    (section.fields && section.fields.length > 0) || 
+    normalizedFields.length > 0 || 
     (section.tables && section.tables.length > 0) ||
     (section.text && section.text.trim().length > 0) || 
     (section.subsections && section.subsections.length > 0);
@@ -67,7 +87,7 @@ export default function SectionNode({ section, searchQuery = '', depth = 0 }) {
           hasContent ? 'cursor-pointer hover:bg-cloud/70 rounded-control' : ''
         }`}
       >
-        <div className="flex items-center space-x-3 min-w-0 pr-2">
+        <div className="flex items-center space-x-2.5 min-w-0 pr-2 flex-wrap">
           {/* Chevron */}
           {hasContent ? (
             <div className={`w-6 h-6 rounded-control flex items-center justify-center transition-transform duration-200 ${
@@ -81,10 +101,12 @@ export default function SectionNode({ section, searchQuery = '', depth = 0 }) {
             <div className="w-6 h-6" />
           )}
 
-          {/* Heading Level Tag */}
-          <span className="pill-badge !text-[11px] !py-0.5 !px-2 !bg-studio-slate !text-pure-white !border-studio-slate">
-            H{level}
-          </span>
+          {/* Section Type Tag */}
+          {sectionType && (
+            <span className="pill-badge !text-[10px] !py-0.5 !px-2 !bg-studio-slate !text-pure-white uppercase font-bold tracking-wider">
+              {sectionType}
+            </span>
+          )}
 
           {/* Section Heading Title */}
           <h3 className={`font-bold truncate text-studio-slate ${
@@ -92,13 +114,20 @@ export default function SectionNode({ section, searchQuery = '', depth = 0 }) {
             level === 2 ? 'text-sm sm:text-base' : 
             'text-xs sm:text-sm'
           }`}>
-            {section.heading || 'Untitled Section'}
+            {title}
           </h3>
+
+          {/* Confidence Score Pill */}
+          {confidence !== null && confidence > 0 && (
+            <span className="pill-badge !text-[10px] !py-0.5 !px-2 !bg-mint-wash !text-fern-pop font-semibold" title="AI Extraction Confidence Score">
+              {(confidence * 100).toFixed(0)}% Conf
+            </span>
+          )}
         </div>
 
         {/* Page Tag */}
         {section.page && (
-          <span className="pill-badge !text-[11px] !py-0.5 !px-2.5 !bg-cloud !text-iron">
+          <span className="pill-badge !text-[11px] !py-0.5 !px-2.5 !bg-cloud !text-iron flex-shrink-0">
             Page {section.page}
           </span>
         )}
@@ -115,12 +144,12 @@ export default function SectionNode({ section, searchQuery = '', depth = 0 }) {
           )}
 
           {/* Structured Key-Value Fields */}
-          {section.fields && section.fields.length > 0 && (
+          {normalizedFields.length > 0 && (
             <div className="space-y-1.5">
               <span className="text-[10px] font-bold uppercase tracking-widest text-graphite block">
-                Extracted Fields ({section.fields.length})
+                Extracted Fields ({normalizedFields.length})
               </span>
-              <FieldTable fields={section.fields} />
+              <FieldTable fields={normalizedFields} />
             </div>
           )}
 

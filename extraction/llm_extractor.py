@@ -1,17 +1,17 @@
-"""LLM-Powered Document Extraction Pipeline — Grounded, Zero-Hallucination & Complete.
+"""LLM-Powered Document Extraction Pipeline with Dynamic Section Schemas.
 
-Architecture (Two-Pass):
-  Pass 1 (Pre-pass / FREE — no LLM cost):
-      document_classifier.py scans the first 5 pages using regex signal patterns
-      and returns doc_type + confidence WITHOUT calling any LLM.
-
-  Pass 2 (Grounded Extraction — LLM):
-      Sends the verbatim text of key and content-bearing pages to the LLM.
-      Uses the doc-type-specific schema from schema_registry.py to extract:
-        1. Executive overview & key points
-        2. Strict metadata properties grid with source page & verbatim evidence
-        3. All hierarchical sections (H1/H2) with fields, text & tables
-        4. Consolidated master schedules across all 114+ pages
+Architecture:
+  - Dynamic Variable-Length Section Nodes:
+      Each section extracted by the LLM is emitted as:
+      {
+        "section_type": "<e.g. metadata | schedule | general | legal | fee>",
+        "title": "<Section Title>",
+        "fields": { "<field_key>": "<verbatim value>" },
+        "confidence": <float 0.0 - 1.0>,
+        "page": <int>,
+        "text": "<verbatim body summary>",
+        "tables": []
+      }
 """
 
 from __future__ import annotations
@@ -19,7 +19,7 @@ from __future__ import annotations
 import json
 import logging
 import concurrent.futures
-from typing import Dict, Any, List, Optional, Tuple
+from typing import Dict, Any, List, Optional, Tuple, Union
 
 try:
     import pymupdf as fitz
@@ -54,6 +54,13 @@ def process_page_chunk(pdf_bytes: bytes, page_indices: List[int]) -> Dict[str, A
                 page = doc[idx]
                 page_num = idx + 1
                 text = page.get_text().strip()
+                # Automatic OCR fallback for scanned pages / flattened images
+                if len(text) < 25:
+                    from extraction.ocr_fallback import extract_page_ocr_text
+                    ocr_result = extract_page_ocr_text(page)
+                    if ocr_result:
+                        text = ocr_result
+
                 tables = detect_tables(page, page_num=page_num)
 
                 chunk_texts.append({"page": page_num, "text": text})
@@ -115,15 +122,10 @@ def parallel_extract_full_text_and_tables(
 
 def build_full_page_digest(
     page_texts: List[Dict[str, Any]],
-    max_total_chars: int = 7000,
+    max_total_chars: int = 7500,
 ) -> str:
-    """Builds a token-efficient digest that includes the critical document sections
-    (cover, metadata, first 10 pages, correspondence, closing notes) without exceeding
-    Groq free tier limits.
-    """
+    """Builds a token-efficient digest of the critical document sections."""
     total = len(page_texts)
-    
-    # Priority pages: first 8 pages, page with disposition, and closing pages
     priority_pages = set(range(1, min(9, total + 1)))
     if total > 10:
         priority_pages.add(total)
@@ -141,7 +143,6 @@ def build_full_page_digest(
         if not text:
             continue
 
-        # Clean repeating headers
         cleaned_lines = [
             l.strip()
             for l in text.splitlines()
@@ -159,14 +160,14 @@ def build_full_page_digest(
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# GROUNDED SYSTEM PROMPT BUILDER
+# DYNAMIC GROUNDED SYSTEM PROMPT BUILDER
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _build_grounded_system_prompt(
+def _build_dynamic_system_prompt(
     doc_type: str,
     schema: Dict[str, Any],
 ) -> str:
-    """Constructs the grounding system prompt with exact schema constraints."""
+    """Constructs the dynamic system prompt requiring variable-length sections array."""
     fields_desc = []
     for f in schema.get("fields", []):
         fields_desc.append(
@@ -174,19 +175,26 @@ def _build_grounded_system_prompt(
         )
     fields_text = "\n".join(fields_desc)
 
-    return f"""You are a professional document analysis engine extracting structured data from documents.
+    return f"""You are a professional document analysis engine extracting structured data into a dynamic, variable-length section hierarchy.
 Document Type: {doc_type} ({schema.get('display_name')})
 
-CRITICAL GROUNDING RULES (ZERO HALLUCINATION):
+CRITICAL GROUNDING RULES:
 1. Extract values VERBATIM from the document text. Never invent, extrapolate, or guess values.
 2. If a field is not found in the text, you MUST output null for that field.
 3. Every non-null field value in 'metadata' MUST cite its source:
    - source_page: integer page number where the value appears
    - source_text: exact substring quote (up to 50 chars) from that page
-4. For 'sections', organize the document into a clean hierarchy of major document sections:
-   - "Filing at a Glance", "General Information", "Company Information", "Filing Fees", "Correspondence Summary / Objections", etc.
-   - For each section, extract verbatim key-value pairs into 'fields'.
-   - Extract any embedded structured data into 'tables'.
+4. For 'sections', return a dynamic, variable-length list of sections representing every distinct topic or part found in the text.
+   Each section object MUST strictly match:
+   {{
+     "section_type": "<e.g. metadata | general | filing_fees | correspondence | legal | schedule>",
+     "title": "<Section Title>",
+     "confidence": <float between 0.0 and 1.0>,
+     "page": <integer page number>,
+     "text": "<verbatim section text or summary>",
+     "fields": {{ "<Field Name>": "<Verbatim Value>" }},
+     "tables": []
+   }}
 5. For 'overview', write a 2-3 sentence executive summary based ONLY on stated facts.
 6. For 'key_points', list 3-5 bullet points of key facts found in the document.
 
@@ -206,19 +214,17 @@ REQUIRED JSON OUTPUT FORMAT:
   ],
   "sections": [
     {{
-      "heading": "Section heading from document",
-      "level": 1,
-      "page": <integer>,
-      "text": "Verbatim section summary",
-      "fields": [{{"label": "Label", "value": "Value"}}],
-      "tables": [
-        {{
-          "title": "Table title",
-          "headers": ["Col1", "Col2"],
-          "rows": [["val1", "val2"]]
-        }}
-      ],
-      "subsections": []
+      "section_type": "metadata",
+      "title": "Filing at a Glance",
+      "confidence": 0.98,
+      "page": 1,
+      "text": "Verbatim summary of filing parameters...",
+      "fields": {{
+        "Company": "New York Life Insurance Company",
+        "State": "Montana",
+        "Tracking Number": "NYLM-134614243"
+      }},
+      "tables": []
     }}
   ]
 }}
@@ -226,7 +232,7 @@ REQUIRED JSON OUTPUT FORMAT:
 RESPOND WITH ONLY THE JSON OBJECT. NO PREAMBLE. NO EXPLANATION."""
 
 
-def grounded_llm_extraction(
+def dynamic_grounded_llm_extraction(
     doc_type: str,
     schema: Dict[str, Any],
     full_digest: str,
@@ -234,8 +240,8 @@ def grounded_llm_extraction(
     doc_title: str,
     total_pages: int,
 ) -> Dict[str, Any]:
-    """Calls the LLM with full verbatim page content + strict grounding prompt."""
-    system_prompt = _build_grounded_system_prompt(doc_type, schema)
+    """Calls the LLM with dynamic variable-length section schema."""
+    system_prompt = _build_dynamic_system_prompt(doc_type, schema)
 
     user_prompt = (
         f"Document Name: {doc_title}\n"
@@ -258,7 +264,6 @@ def grounded_llm_extraction(
     if not response_text:
         return {}
 
-    # Attempt to repair and parse JSON
     try:
         from json_repair import repair_json
         repaired = repair_json(response_text, return_objects=True)
@@ -278,18 +283,7 @@ def grounded_llm_extraction(
 # ─────────────────────────────────────────────────────────────────────────────
 
 def extract_with_llm(pdf_bytes: bytes, filename: str = "document.pdf") -> Dict[str, Any]:
-    """Two-pass grounded extraction pipeline:
-
-    Pass 1 — Classify (zero LLM cost, pure regex):
-        Detects doc_type from first 5 pages. Selects the correct field schema.
-
-    Pass 2 — Extract (LLM call, fully grounded):
-        Sends clean page digest + schema to LLM.
-        Every extracted field cites source_page + source_text.
-        Null fields are preserved and shown as "Not found" in the UI.
-
-    Returns the unified structured document tree for the frontend.
-    """
+    """Two-pass grounded extraction pipeline producing dynamic variable-length section hierarchy."""
     doc = fitz.open(stream=pdf_bytes, filetype="pdf")
     total_pages = len(doc)
     doc.close()
@@ -298,7 +292,6 @@ def extract_with_llm(pdf_bytes: bytes, filename: str = "document.pdf") -> Dict[s
         return SectionNode(heading="Document", level=0, page=1).to_dict()
 
     # ── Step 1: Parallel extraction of 100% of pages + tables ─────────────────
-    logger.info("Step 1: Parallel extraction — %d pages", total_pages)
     page_texts, detected_tables = parallel_extract_full_text_and_tables(
         pdf_bytes=pdf_bytes,
         batch_size=15,
@@ -306,21 +299,12 @@ def extract_with_llm(pdf_bytes: bytes, filename: str = "document.pdf") -> Dict[s
     )
 
     # ── Step 2: Document classification (NO LLM — pure regex signal matching) ─
-    logger.info("Step 2: Classifying document type (no LLM call)")
     classification = classify_document(page_texts, max_pages=5)
     doc_type = classification["doc_type"]
     schema = get_schema(doc_type)
 
-    logger.info(
-        "Classified as %s (confidence=%.2f, signals=%s)",
-        doc_type,
-        classification["confidence"],
-        classification["detected_signals"][:3],
-    )
-
     # ── Step 3: Build page digest ─────────────────────────────────────────────
-    logger.info("Step 3: Building page digest (%d pages)", len(page_texts))
-    full_digest = build_full_page_digest(page_texts, max_total_chars=7000)
+    full_digest = build_full_page_digest(page_texts, max_total_chars=7500)
 
     tables_lines: List[str] = []
     for idx, t in enumerate(detected_tables[:10], start=1):
@@ -330,11 +314,10 @@ def extract_with_llm(pdf_bytes: bytes, filename: str = "document.pdf") -> Dict[s
         )
     tables_text = "\n".join(tables_lines)
 
-    # ── Step 4: Grounded LLM extraction (full digest, schema-constrained) ─────
-    logger.info("Step 4: Grounded LLM extraction (doc_type=%s)", doc_type)
+    # ── Step 4: Grounded Dynamic LLM extraction ──────────────────────────────
     llm_result = {}
     try:
-        llm_result = grounded_llm_extraction(
+        llm_result = dynamic_grounded_llm_extraction(
             doc_type=doc_type,
             schema=schema,
             full_digest=full_digest,
@@ -343,20 +326,51 @@ def extract_with_llm(pdf_bytes: bytes, filename: str = "document.pdf") -> Dict[s
             total_pages=total_pages,
         )
     except Exception as exc:
-        logger.error("LLM extraction failed: %s — using fallback", str(exc))
+        logger.error("Dynamic LLM extraction failed: %s", str(exc))
         llm_result = {}
 
     if not isinstance(llm_result, dict):
         llm_result = {}
 
     # ── Step 5: Consolidate multi-page / landscape schedule tables ────────────
-    logger.info("Step 5: Consolidating multi-page schedule tables")
     consolidated_tables = consolidate_schedule_tables(detected_tables)
 
-    # ── Step 6: Assemble final document structure ─────────────────────────────
+    # ── Step 6: Assemble final dynamic document structure ────────────────────
     metadata_raw = llm_result.get("metadata", {})
     source_evidence = llm_result.get("source_evidence", {})
-    sections_data: List[Dict[str, Any]] = llm_result.get("sections", [])
+    raw_sections: List[Dict[str, Any]] = llm_result.get("sections", [])
+
+    # Format dynamic sections with backward and forward compatibility
+    normalized_sections: List[Dict[str, Any]] = []
+    for sec in raw_sections:
+        title = sec.get("title") or sec.get("heading") or "Section"
+        section_type = sec.get("section_type") or "general"
+        confidence = float(sec.get("confidence", 0.95))
+        page = int(sec.get("page", 1))
+        text = sec.get("text") or ""
+        raw_fields = sec.get("fields", {})
+
+        # Normalize fields to list of {label, value} objects for UI compatibility
+        fields_list: List[Dict[str, str]] = []
+        if isinstance(raw_fields, dict):
+            for k, v in raw_fields.items():
+                fields_list.append({"label": str(k), "value": str(v) if v is not None else ""})
+        elif isinstance(raw_fields, list):
+            fields_list = raw_fields
+
+        normalized_sections.append({
+            "section_type": section_type,
+            "title": title,
+            "heading": title,
+            "confidence": confidence,
+            "level": sec.get("level", 1),
+            "page": page,
+            "text": text,
+            "fields": fields_list,
+            "raw_fields_dict": raw_fields if isinstance(raw_fields, dict) else {},
+            "tables": sec.get("tables", []),
+            "subsections": sec.get("subsections", []),
+        })
 
     # Enrich metadata fields with type info from schema + source evidence
     enriched_metadata: Dict[str, Any] = {}
@@ -388,19 +402,19 @@ def extract_with_llm(pdf_bytes: bytes, filename: str = "document.pdf") -> Dict[s
     # Inject consolidated multi-page schedule tables as a dedicated section
     if consolidated_tables:
         schedule_section = {
+            "section_type": "schedule",
+            "title": "Master Form & Document Schedules (All Pages)",
             "heading": "Master Form & Document Schedules (All Pages)",
+            "confidence": 1.0,
             "level": 1,
             "page": 1,
-            "text": (
-                "Consolidated structured schedule items extracted across all document pages."
-            ),
+            "text": "Consolidated structured schedule items extracted across all document pages.",
             "fields": [],
             "tables": consolidated_tables,
             "subsections": [],
         }
-        # Insert after first section (Filing at a Glance)
-        insert_pos = 1 if len(sections_data) > 1 else 0
-        sections_data.insert(insert_pos, schedule_section)
+        insert_pos = 1 if len(normalized_sections) > 1 else 0
+        normalized_sections.insert(insert_pos, schedule_section)
 
     # Root document node
     root = {
@@ -409,8 +423,8 @@ def extract_with_llm(pdf_bytes: bytes, filename: str = "document.pdf") -> Dict[s
         "page": 1,
         "text": "",
         "fields": [],
-        "tables": [],
-        "subsections": sections_data,
+        "sections": normalized_sections,
+        "subsections": normalized_sections,
         "summary": summary_block,
     }
 

@@ -1,8 +1,7 @@
 import React from 'react';
 
 /**
- * KpiStrip — Specify Metric Cards
- * Inter SemiBold, clean pill badges, and dual-layer subtle elevation.
+ * KpiStrip — Specify Metric Cards with Interactive Grounding Citation Jumps
  */
 
 const STATUS_COLORS = {
@@ -29,7 +28,7 @@ function getStatusColor(value) {
   return 'bg-lilac-wash text-iris border-iris/20';
 }
 
-function KpiCard({ label, value, type, nullLabel, sourceEvidence }) {
+function KpiCard({ label, value, type, nullLabel, sourceEvidence, onCitationClick }) {
   const isNull = value === null || value === undefined || value === '';
 
   if (isNull) {
@@ -59,12 +58,14 @@ function KpiCard({ label, value, type, nullLabel, sourceEvidence }) {
         <div className="mt-2 flex items-baseline justify-between gap-1 flex-wrap">
           <span className="text-lg font-bold text-studio-slate font-mono">{value}</span>
           {sourceEvidence?.source_page && (
-            <span
-              className="text-[10px] text-iris bg-lilac-wash px-1.5 py-0.5 rounded-control font-semibold cursor-default"
-              title={sourceEvidence.source_text || `Found on page ${sourceEvidence.source_page}`}
+            <button
+              type="button"
+              onClick={() => onCitationClick && onCitationClick(sourceEvidence.source_page, sourceEvidence.source_text || value)}
+              className="text-[10px] text-iris bg-lilac-wash hover:bg-iris hover:text-white px-1.5 py-0.5 rounded-control font-semibold cursor-pointer transition"
+              title={sourceEvidence.source_text ? `Jump to Page ${sourceEvidence.source_page}: "${sourceEvidence.source_text}"` : `Jump to Page ${sourceEvidence.source_page}`}
             >
-              p.{sourceEvidence.source_page}
-            </span>
+              p.{sourceEvidence.source_page} ↗
+            </button>
           )}
         </div>
       </div>
@@ -84,12 +85,14 @@ function KpiCard({ label, value, type, nullLabel, sourceEvidence }) {
         <div className="mt-2 flex items-baseline justify-between gap-1 flex-wrap">
           <span className="text-sm font-bold text-studio-slate font-mono">{value}</span>
           {sourceEvidence?.source_page && (
-            <span
-              className="text-[10px] text-iris bg-lilac-wash px-1.5 py-0.5 rounded-control font-semibold cursor-default"
-              title={sourceEvidence.source_text || `Found on page ${sourceEvidence.source_page}`}
+            <button
+              type="button"
+              onClick={() => onCitationClick && onCitationClick(sourceEvidence.source_page, sourceEvidence.source_text || value)}
+              className="text-[10px] text-iris bg-lilac-wash hover:bg-iris hover:text-white px-1.5 py-0.5 rounded-control font-semibold cursor-pointer transition"
+              title={sourceEvidence.source_text ? `Jump to Page ${sourceEvidence.source_page}: "${sourceEvidence.source_text}"` : `Jump to Page ${sourceEvidence.source_page}`}
             >
-              p.{sourceEvidence.source_page}
-            </span>
+              p.{sourceEvidence.source_page} ↗
+            </button>
           )}
         </div>
       </div>
@@ -124,19 +127,21 @@ function KpiCard({ label, value, type, nullLabel, sourceEvidence }) {
           {value}
         </span>
         {sourceEvidence?.source_page && (
-          <span
-            className="text-[10px] text-iron bg-cloud px-1.5 py-0.5 rounded-control font-semibold cursor-default"
-            title={sourceEvidence.source_text || `Found on page ${sourceEvidence.source_page}`}
+          <button
+            type="button"
+            onClick={() => onCitationClick && onCitationClick(sourceEvidence.source_page, sourceEvidence.source_text || value)}
+            className="text-[10px] text-iris bg-lilac-wash hover:bg-iris hover:text-white px-1.5 py-0.5 rounded-control font-semibold cursor-pointer transition"
+            title={sourceEvidence.source_text ? `Jump to Page ${sourceEvidence.source_page}: "${sourceEvidence.source_text}"` : `Jump to Page ${sourceEvidence.source_page}`}
           >
-            p.{sourceEvidence.source_page}
-          </span>
+            p.{sourceEvidence.source_page} ↗
+          </button>
         )}
       </div>
     </div>
   );
 }
 
-export default function KpiStrip({ summary }) {
+export default function KpiStrip({ summary, onCitationClick }) {
   if (!summary) return null;
 
   const { metadata = {}, kpi_keys = [], doc_type_display } = summary;
@@ -175,6 +180,7 @@ export default function KpiStrip({ summary }) {
             type={type}
             nullLabel={null_label}
             sourceEvidence={source_page ? { source_page, source_text } : null}
+            onCitationClick={onCitationClick}
           />
         ))}
       </div>

@@ -148,6 +148,7 @@ function MainApp() {
         {activeDocument ? (
           <DocumentViewer
             document={activeDocument}
+            uploadedFile={file}
             onBackToUpload={() => {
               setActiveDocument(null);
               window.scrollTo({ top: 0, behavior: 'smooth' });

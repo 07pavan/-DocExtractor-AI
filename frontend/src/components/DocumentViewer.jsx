@@ -2,6 +2,7 @@ import { useState, useMemo } from 'react';
 import * as XLSX from 'xlsx';
 import SectionTree from './SectionTree';
 import SummaryCard from './SummaryCard';
+import PdfSideBySideViewer from './PdfSideBySideViewer';
 import { sectionMatchesSearch } from './SectionNode';
 
 function extractTopLevelSections(doc) {
@@ -104,9 +105,14 @@ function cleanTableForExport(table) {
   return { title: table.title, headers: cleanHeaders, rows: cleanRows };
 }
 
-export default function DocumentViewer({ document: doc, onBackToUpload }) {
+export default function DocumentViewer({ document: doc, uploadedFile = null, onBackToUpload }) {
   const [searchQuery, setSearchQuery] = useState('');
   const [copied, setCopied] = useState(false);
+  
+  // Side-by-Side Visual Grounding State
+  const [showSideBySide, setShowSideBySide] = useState(false);
+  const [targetCitationPage, setTargetCitationPage] = useState(1);
+  const [targetCitationQuote, setTargetCitationQuote] = useState('');
 
   const sections = useMemo(() => extractTopLevelSections(doc), [doc]);
   const totalCount = useMemo(() => countSectionsRecursively(sections), [sections]);
@@ -123,6 +129,15 @@ export default function DocumentViewer({ document: doc, onBackToUpload }) {
   const filename = doc.filename || doc.heading || 'Document Extraction';
   const cleanBaseName = filename.replace(/\.[^/.]+$/, '');
   const summary = doc.summary || (doc.sections && typeof doc.sections === 'object' ? doc.sections.summary : null);
+
+  // Citation click handler -> opens side-by-side split screen and jumps to cited page
+  const handleCitationClick = (pageNumber, quoteText = '') => {
+    if (pageNumber && pageNumber > 0) {
+      setTargetCitationPage(pageNumber);
+      setTargetCitationQuote(quoteText);
+      setShowSideBySide(true);
+    }
+  };
 
   // 1. Export JSON
   const handleExportJSON = () => {
@@ -232,7 +247,22 @@ export default function DocumentViewer({ document: doc, onBackToUpload }) {
           <span>Back to Upload / Document Vault</span>
         </button>
 
-        <div className="flex items-center space-x-2 text-xs text-iron">
+        <div className="flex items-center space-x-2 text-xs text-iron flex-wrap">
+          {/* Split-Screen PDF Canvas Toggle */}
+          <button
+            type="button"
+            onClick={() => setShowSideBySide(!showSideBySide)}
+            className={`btn-pill-ghost !text-xs !py-1 !px-3 border ${
+              showSideBySide
+                ? 'bg-lilac-wash border-iris text-iris font-bold'
+                : 'hover:border-iris hover:text-iris'
+            }`}
+            title="Toggle Split-Screen PDF Viewer"
+          >
+            <span>📑</span>
+            <span>{showSideBySide ? 'Hide Original PDF' : 'View Original PDF Side-by-Side'}</span>
+          </button>
+
           <span className="pill-badge !text-xs !py-1 !px-2.5 !bg-cloud">
             <span className="text-iris font-bold">⬡</span>
             <span>{totalCount} Sections</span>
@@ -248,102 +278,126 @@ export default function DocumentViewer({ document: doc, onBackToUpload }) {
         </div>
       </div>
 
-      {/* Main Document Title & Multi-Format Export Action Bar */}
-      <div className="card-specify space-y-4">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div className="space-y-1">
-            <div className="flex items-center space-x-2">
-              <span className="pill-badge !text-[11px] !py-0.5 !px-2.5 !bg-mint-wash !text-fern-pop !border-fern-pop/20">
-                Verified Extraction
-              </span>
-              {doc.document_id && (
-                <span className="text-[11px] text-graphite font-mono">
-                  ID: {String(doc.document_id).substring(0, 8)}...
-                </span>
+      {/* Main Container: Full Width or Split-Screen Grid */}
+      <div className={`grid gap-6 transition-all duration-300 ${showSideBySide ? 'grid-cols-1 lg:grid-cols-12' : 'grid-cols-1'}`}>
+        
+        {/* Left Column: Structured Intelligence Stream */}
+        <div className={`space-y-6 ${showSideBySide ? 'lg:col-span-7' : 'w-full'}`}>
+          {/* Main Document Title & Multi-Format Export Action Bar */}
+          <div className="card-specify space-y-4">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div className="space-y-1">
+                <div className="flex items-center space-x-2">
+                  <span className="pill-badge !text-[11px] !py-0.5 !px-2.5 !bg-mint-wash !text-fern-pop !border-fern-pop/20">
+                    Verified Extraction
+                  </span>
+                  {doc.document_id && (
+                    <span className="text-[11px] text-graphite font-mono">
+                      ID: {String(doc.document_id).substring(0, 8)}...
+                    </span>
+                  )}
+                </div>
+                <h2 className="text-2xl sm:text-3xl font-bold text-studio-slate tracking-tight truncate max-w-2xl" title={filename}>
+                  {filename}
+                </h2>
+              </div>
+
+              {/* Export Action Buttons */}
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  onClick={handleExportExcel}
+                  disabled={allTables.length === 0}
+                  className="btn-pill-dark !py-2 !px-3.5 !text-xs disabled:opacity-40"
+                  title="Export all tables to multi-sheet Excel spreadsheet"
+                >
+                  <span>📗</span>
+                  <span>Export to Excel (.xlsx)</span>
+                </button>
+
+                <button
+                  onClick={handleExportCSV}
+                  disabled={allTables.length === 0}
+                  className="btn-pill-ghost !py-2 !px-3.5 !text-xs disabled:opacity-40"
+                  title="Export all tables to CSV"
+                >
+                  <span>📊</span>
+                  <span>CSV</span>
+                </button>
+
+                <button
+                  onClick={handleExportJSON}
+                  className="btn-pill-ghost !py-2 !px-3.5 !text-xs"
+                  title="Download entire hierarchical tree as JSON"
+                >
+                  <span>💾</span>
+                  <span>JSON</span>
+                </button>
+
+                <button
+                  onClick={handleCopyJSON}
+                  className="btn-pill-ghost !py-2 !px-3 !text-xs"
+                  title="Copy complete JSON tree to clipboard"
+                >
+                  <span>{copied ? '✓ Copied' : '📋'}</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Live Search and Filter Bar */}
+            <div className="relative pt-2">
+              <input
+                type="text"
+                placeholder="Search headings, fields, or text in this document..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full text-xs pl-9 pr-8 py-2.5 bg-cloud border border-mist focus:border-iris rounded-control focus:outline-none transition shadow-subtle-2 text-studio-slate"
+              />
+              <span className="absolute left-3 top-5 text-graphite text-xs">🔍</span>
+              {searchQuery && (
+                <button
+                  onClick={() => setSearchQuery('')}
+                  className="absolute right-3 top-5 text-graphite hover:text-studio-slate text-xs font-bold"
+                >
+                  ✕
+                </button>
               )}
             </div>
-            <h2 className="text-2xl sm:text-3xl font-bold text-studio-slate tracking-tight truncate max-w-2xl" title={filename}>
-              {filename}
-            </h2>
           </div>
 
-          {/* Export Action Buttons (Specify Pill Group) */}
-          <div className="flex flex-wrap items-center gap-2">
-            <button
-              onClick={handleExportExcel}
-              disabled={allTables.length === 0}
-              className="btn-pill-dark !py-2 !px-3.5 !text-xs disabled:opacity-40"
-              title="Export all tables to multi-sheet Excel spreadsheet"
-            >
-              <span>📗</span>
-              <span>Export to Excel (.xlsx)</span>
-            </button>
-
-            <button
-              onClick={handleExportCSV}
-              disabled={allTables.length === 0}
-              className="btn-pill-ghost !py-2 !px-3.5 !text-xs disabled:opacity-40"
-              title="Export all tables to CSV"
-            >
-              <span>📊</span>
-              <span>CSV</span>
-            </button>
-
-            <button
-              onClick={handleExportJSON}
-              className="btn-pill-ghost !py-2 !px-3.5 !text-xs"
-              title="Download entire hierarchical tree as JSON"
-            >
-              <span>💾</span>
-              <span>JSON</span>
-            </button>
-
-            <button
-              onClick={handleCopyJSON}
-              className="btn-pill-ghost !py-2 !px-3 !text-xs"
-              title="Copy complete JSON tree to clipboard"
-            >
-              <span>{copied ? '✓ Copied' : '📋'}</span>
-            </button>
-          </div>
-        </div>
-
-        {/* Live Search and Filter Bar */}
-        <div className="relative pt-2">
-          <input
-            type="text"
-            placeholder="Search headings, fields, or text in this document..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full text-xs pl-9 pr-8 py-2.5 bg-cloud border border-mist focus:border-iris rounded-control focus:outline-none transition shadow-subtle-2 text-studio-slate"
-          />
-          <span className="absolute left-3 top-5 text-graphite text-xs">🔍</span>
-          {searchQuery && (
-            <button
-              onClick={() => setSearchQuery('')}
-              className="absolute right-3 top-5 text-graphite hover:text-studio-slate text-xs font-bold"
-            >
-              ✕
-            </button>
+          {/* Executive Summary Card with Clickable Citations */}
+          {summary && (
+            <SummaryCard
+              summary={summary}
+              onCitationClick={handleCitationClick}
+            />
           )}
+
+          {/* Hierarchical Document Section Tree */}
+          <div className="space-y-3">
+            <div className="flex items-center justify-between px-1">
+              <h3 className="text-xs font-bold uppercase tracking-widest text-graphite">
+                Document Structure & Section Breakdown
+              </h3>
+              <span className="pill-badge !text-[11px] !py-0.5 !px-2.5 !bg-cloud">
+                Showing {matchCount} of {totalCount} sections
+              </span>
+            </div>
+
+            <SectionTree sections={sections} searchQuery={searchQuery} />
+          </div>
         </div>
-      </div>
 
-      {/* Executive Summary Card */}
-      {summary && <SummaryCard summary={summary} />}
-
-      {/* Hierarchical Document Section Tree */}
-      <div className="space-y-3">
-        <div className="flex items-center justify-between px-1">
-          <h3 className="text-xs font-bold uppercase tracking-widest text-graphite">
-            Document Structure & Section Breakdown
-          </h3>
-          <span className="pill-badge !text-[11px] !py-0.5 !px-2.5 !bg-cloud">
-            Showing {matchCount} of {totalCount} sections
-          </span>
-        </div>
-
-        <SectionTree sections={sections} searchQuery={searchQuery} />
+        {/* Right Column: Split-Screen PDF Viewer Canvas */}
+        {showSideBySide && (
+          <div className="lg:col-span-5 sticky top-20 h-[calc(100vh-6rem)]">
+            <PdfSideBySideViewer
+              file={uploadedFile}
+              targetPage={targetCitationPage}
+              highlightText={targetCitationQuote}
+              onClose={() => setShowSideBySide(false)}
+            />
+          </div>
+        )}
       </div>
     </div>
   );
