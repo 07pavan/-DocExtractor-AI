@@ -1,6 +1,8 @@
 """Resilient Multi-Provider LLM Client.
-Attempts primary calls via Groq, automatically falling back to OpenRouter upon errors/rate limits.
-Always reads environment variables dynamically to ensure fresh keys are loaded.
+Supports high-performance Groq models with automatic fallback recovery.
+Default primary: openai/gpt-oss-120b (Flagship 120B parameter reasoning model on Groq)
+Secondary: qwen/qwen3.8-27b on Groq
+Fallback: OpenRouter (Qwen / Claude / Llama)
 """
 
 from __future__ import annotations
@@ -17,7 +19,7 @@ logger = logging.getLogger("extraction.llm_client")
 
 class ResilientLLMClient:
     """Multi-provider LLM client with automatic failure recovery.
-    Primary: Groq (high-speed inference)
+    Primary: Groq Flagship (openai/gpt-oss-120b / qwen/qwen3.8-27b)
     Fallback: OpenRouter (Qwen / Claude / Llama)
     """
 
@@ -27,7 +29,8 @@ class ResilientLLMClient:
 
     @property
     def groq_model(self) -> str:
-        return os.getenv("GROQ_MODEL", "qwen/qwen3.8-27b").strip()
+        # Default to the most powerful 120B parameter model hosted on Groq
+        return os.getenv("GROQ_MODEL", "openai/gpt-oss-120b").strip()
 
     @property
     def openrouter_api_key(self) -> str:
@@ -71,37 +74,44 @@ class ResilientLLMClient:
         temperature: float = 0.1,
         max_tokens: int = 4096,
     ) -> str:
-        """Executes a chat completion with automatic provider fallback:
-        1. Tries Groq
-        2. On error / rate limit, catches exception, logs warning, and retries with OpenRouter
+        """Executes a chat completion with automatic model and provider fallback:
+        1. Tries primary Groq model (openai/gpt-oss-120b)
+        2. Tries secondary Groq model (qwen/qwen3.8-27b)
+        3. On rate limit / error, catches exception and retries with OpenRouter
         """
         last_error = None
-
-        # 1. Try Primary: Groq
         groq_client = self._get_groq_client()
-        if groq_client:
-            try:
-                logger.info("Executing LLM completion with primary provider: Groq (%s)", self.groq_model)
-                kwargs: Dict[str, Any] = {
-                    "model": self.groq_model,
-                    "messages": messages,
-                    "temperature": temperature,
-                    "max_tokens": max_tokens,
-                }
-                if json_mode:
-                    kwargs["response_format"] = {"type": "json_object"}
 
-                completion = groq_client.chat.completions.create(**kwargs)
-                content = completion.choices[0].message.content or ""
-                if content:
-                    return content
-            except Exception as exc:
-                last_error = exc
-                logger.warning(
-                    "Groq request failed (%s: %s). Automatically falling back to OpenRouter...",
-                    type(exc).__name__,
-                    str(exc),
-                )
+        if groq_client:
+            # Try primary (gpt-oss-120b) then fallback model on Groq (qwen3.8-27b)
+            candidate_models = [self.groq_model, "qwen/qwen3.8-27b"]
+            # Deduplicate candidate models while preserving order
+            unique_models = list(dict.fromkeys(candidate_models))
+
+            for model_name in unique_models:
+                try:
+                    logger.info("Executing LLM completion with Groq model: %s", model_name)
+                    kwargs: Dict[str, Any] = {
+                        "model": model_name,
+                        "messages": messages,
+                        "temperature": temperature,
+                        "max_tokens": max_tokens,
+                    }
+                    if json_mode:
+                        kwargs["response_format"] = {"type": "json_object"}
+
+                    completion = groq_client.chat.completions.create(**kwargs)
+                    content = completion.choices[0].message.content or ""
+                    if content:
+                        return content
+                except Exception as exc:
+                    last_error = exc
+                    logger.warning(
+                        "Groq model %s failed (%s: %s). Trying next candidate...",
+                        model_name,
+                        type(exc).__name__,
+                        str(exc),
+                    )
 
         # 2. Try Fallback: OpenRouter
         openrouter_client = self._get_openrouter_client()
