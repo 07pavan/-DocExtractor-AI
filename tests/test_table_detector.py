@@ -63,10 +63,12 @@ def test_detect_tables_on_page(tmp_path):
         tables = detect_tables(doc[0], page_num=1)
         assert len(tables) >= 1
         tab = tables[0]
+        assert "headers" in tab
         assert "rows" in tab
         assert "bbox" in tab
         assert tab["page"] == 1
-        assert len(tab["rows"]) >= 4
+        assert len(tab["headers"]) == 3
+        assert len(tab["rows"]) >= 3
         assert len(tab["bbox"]) == 4
     finally:
         doc.close()

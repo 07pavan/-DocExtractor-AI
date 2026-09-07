@@ -23,22 +23,57 @@ class ResilientLLMClient:
     Fallback: OpenRouter (Qwen / Claude / Llama)
     """
 
+    def __init__(
+        self,
+        groq_api_key: Optional[str] = None,
+        groq_model: Optional[str] = None,
+        openrouter_api_key: Optional[str] = None,
+        openrouter_model: Optional[str] = None,
+    ):
+        self._groq_api_key = groq_api_key
+        self._groq_model = groq_model
+        self._openrouter_api_key = openrouter_api_key
+        self._openrouter_model = openrouter_model
+
     @property
     def groq_api_key(self) -> str:
+        if self._groq_api_key is not None:
+            return self._groq_api_key.strip()
         return os.getenv("GROQ_API_KEY", "").strip()
+
+    @groq_api_key.setter
+    def groq_api_key(self, value: Optional[str]):
+        self._groq_api_key = value
 
     @property
     def groq_model(self) -> str:
-        # Default to the most powerful 120B parameter model hosted on Groq
+        if self._groq_model is not None:
+            return self._groq_model.strip()
         return os.getenv("GROQ_MODEL", "openai/gpt-oss-120b").strip()
+
+    @groq_model.setter
+    def groq_model(self, value: Optional[str]):
+        self._groq_model = value
 
     @property
     def openrouter_api_key(self) -> str:
+        if self._openrouter_api_key is not None:
+            return self._openrouter_api_key.strip()
         return os.getenv("OPENROUTER_API_KEY", "").strip()
+
+    @openrouter_api_key.setter
+    def openrouter_api_key(self, value: Optional[str]):
+        self._openrouter_api_key = value
 
     @property
     def openrouter_model(self) -> str:
+        if self._openrouter_model is not None:
+            return self._openrouter_model.strip()
         return os.getenv("OPENROUTER_MODEL", "qwen/qwen-2.5-72b-instruct").strip()
+
+    @openrouter_model.setter
+    def openrouter_model(self, value: Optional[str]):
+        self._openrouter_model = value
 
     def is_available(self) -> bool:
         """Returns True if at least one LLM provider is configured."""
