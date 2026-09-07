@@ -77,13 +77,13 @@ export default function SectionNode({ section, searchQuery = '', forceExpanded =
   return (
     <div className={`rounded-xl transition-all ${
       depth > 0 
-        ? 'mt-3 ml-3 sm:ml-5 pl-3 sm:pl-4 border-l border-zinc-800 bg-zinc-950/40' 
-        : 'mt-3 bg-zinc-900 border border-zinc-800 overflow-hidden shadow-md'
+        ? 'mt-3 ml-2 sm:ml-4 pl-3 sm:pl-4 border-l-2 border-zinc-800 bg-zinc-950/30' 
+        : 'mt-4 bg-zinc-900 border border-zinc-800 overflow-hidden shadow-md'
     }`}>
       {/* Clickable Section Header */}
       <div
         onClick={toggleExpand}
-        className={`flex items-center justify-between p-3 select-none transition ${
+        className={`flex items-center justify-between p-3.5 select-none transition ${
           hasContent ? 'cursor-pointer hover:bg-zinc-800/60' : ''
         }`}
       >
@@ -101,40 +101,37 @@ export default function SectionNode({ section, searchQuery = '', forceExpanded =
             <div className="w-5 h-5" />
           )}
 
-          {/* Section Type Tag */}
-          {sectionType && (
-            <span className="text-[10px] py-0.5 px-2 bg-zinc-800 text-zinc-300 border border-zinc-700 rounded uppercase font-bold tracking-wider">
-              {sectionType}
-            </span>
-          )}
+          {/* Section Level / Type Tag */}
+          <span className="text-[10px] py-0.5 px-2 bg-zinc-800 text-zinc-300 border border-zinc-700 rounded font-mono font-bold">
+            {level === 1 ? 'H1' : level === 2 ? 'H2' : `H${level}`}
+          </span>
 
           {/* Section Heading Title */}
           <h3 className={`font-bold truncate text-zinc-100 ${
-            level === 1 ? 'text-sm sm:text-base' : 
-            level === 2 ? 'text-xs sm:text-sm' : 
-            'text-xs'
+            level === 1 ? 'text-base sm:text-lg' : 
+            level === 2 ? 'text-sm sm:text-base' : 
+            'text-xs sm:text-sm'
           }`}>
             {title}
           </h3>
 
-          {/* Field Count Badge */}
+          {/* Badges */}
           {normalizedFields.length > 0 && (
-            <span className="text-[10px] py-0.5 px-1.5 bg-zinc-800 text-zinc-400 rounded">
-              {normalizedFields.length} field{normalizedFields.length !== 1 ? 's' : ''}
+            <span className="text-[10px] py-0.5 px-2 bg-zinc-800 text-zinc-400 rounded border border-zinc-700">
+              🏷️ {normalizedFields.length} field{normalizedFields.length !== 1 ? 's' : ''}
             </span>
           )}
 
-          {/* Table Count Badge */}
           {section.tables && section.tables.length > 0 && (
-            <span className="text-[10px] py-0.5 px-1.5 bg-indigo-950 text-indigo-300 border border-indigo-800/40 rounded">
-              {section.tables.length} table{section.tables.length !== 1 ? 's' : ''}
+            <span className="text-[10px] py-0.5 px-2 bg-indigo-950 text-indigo-300 border border-indigo-800/50 rounded font-medium">
+              📊 {section.tables.length} Table{section.tables.length !== 1 ? 's' : ''}
             </span>
           )}
         </div>
 
         {/* Page Tag */}
         {section.page && (
-          <span className="text-[11px] py-0.5 px-2 bg-zinc-800 text-zinc-400 border border-zinc-700 rounded font-mono flex-shrink-0">
+          <span className="text-[11px] py-0.5 px-2.5 bg-zinc-800 text-zinc-400 border border-zinc-700 rounded font-mono flex-shrink-0">
             Page {section.page}
           </span>
         )}
@@ -142,37 +139,33 @@ export default function SectionNode({ section, searchQuery = '', forceExpanded =
 
       {/* Expanded Section Body */}
       {expanded && (
-        <div className="px-4 pb-4 pt-1 space-y-4 border-t border-zinc-800/50">
-          {/* Body Text */}
+        <div className="px-4 pb-4 pt-2 space-y-4 border-t border-zinc-800/60">
+          {/* 1. Narrative Body Paragraphs */}
           {section.text && section.text.trim().length > 0 && (
-            <div className="p-3 bg-zinc-950 rounded-lg text-xs sm:text-sm text-zinc-300 leading-relaxed whitespace-pre-line border border-zinc-800/80 font-sans">
+            <div className="p-4 bg-zinc-950/90 rounded-xl text-xs sm:text-sm text-zinc-200 leading-relaxed whitespace-pre-line border border-zinc-800/90 font-sans shadow-inner">
               {section.text}
             </div>
           )}
 
-          {/* Structured Key-Value Fields */}
+          {/* 2. Structured Key-Value Property Cards (Card Grid, NOT table) */}
           {normalizedFields.length > 0 && (
-            <div className="space-y-1.5">
-              <span className="text-[10px] font-bold uppercase tracking-widest text-zinc-500 block">
-                Extracted Fields ({normalizedFields.length})
-              </span>
-              <FieldTable fields={normalizedFields} />
-            </div>
+            <FieldTable fields={normalizedFields} />
           )}
 
-          {/* Tables & Schedules */}
+          {/* 3. Actual Data Tables under this Heading */}
           {section.tables && section.tables.length > 0 && (
-            <div className="space-y-1.5">
-              <span className="text-[10px] font-bold uppercase tracking-widest text-zinc-500 block">
-                Extracted Tables ({section.tables.length})
-              </span>
+            <div className="space-y-2 pt-2">
+              <div className="flex items-center space-x-2 text-xs text-indigo-400 font-semibold">
+                <span>📊</span>
+                <span>Structured Tables under "{title}"</span>
+              </div>
               <TableView tables={section.tables} />
             </div>
           )}
 
-          {/* Recursive Subsections */}
+          {/* 4. Recursive Nested Subsections */}
           {section.subsections && section.subsections.length > 0 && (
-            <div className="space-y-1 pt-2">
+            <div className="space-y-2 pt-2 border-t border-zinc-800/40">
               {section.subsections.map((sub, idx) => (
                 <SectionNode
                   key={idx}
