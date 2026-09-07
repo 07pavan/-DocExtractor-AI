@@ -74,19 +74,16 @@ def build_section_tree(lines: List[LineInfo], doc_title: str = "Document") -> Se
     return root
 
 
-from extraction.llm_client import llm_client
-from extraction.llm_extractor import extract_with_llm
+from extraction.direct_section_extractor import extract_direct_sections_from_pdf
 
 
 def extract_document(
     pdf_bytes: bytes,
     filename: str = "document.pdf",
-    use_llm: bool = True,
+    use_llm: bool = False,
 ) -> Dict[str, Any]:
-    """Extracts hierarchical heading, body text, structured field pairs, and summaries
-
-    from raw PDF bytes. If LLM keys are configured (Groq/OpenRouter), uses the LLM
-    pipeline for enhanced borderless table extraction and executive summaries.
+    """Extracts hierarchical headings, structured key-value fields, paragraphs, and tables
+    section-by-section directly from the PDF layout for verbatim fidelity.
     """
     if not pdf_bytes:
         return SectionNode(
@@ -98,52 +95,4 @@ def extract_document(
             subsections=[],
         ).to_dict()
 
-    # If LLM is available and requested, run the multi-provider LLM extraction pipeline
-    if use_llm and llm_client.is_available():
-        try:
-            return extract_with_llm(pdf_bytes, filename=filename)
-        except Exception as exc:
-            import logging
-            logging.getLogger("extraction.parser").warning(
-                "LLM extraction pipeline encountered error: %s. Falling back to PyMuPDF heuristic engine.",
-                str(exc),
-            )
-
-    doc = fitz.open(stream=pdf_bytes, filetype="pdf")
-
-    try:
-        if len(doc) == 0:
-            return SectionNode(
-                heading="Document",
-                level=0,
-                page=1,
-                text="",
-                fields=[],
-                subsections=[],
-            ).to_dict()
-
-        # Step 1: Extract all text lines, spans, bounding boxes, and compute median font size
-        raw_lines, median_font_size = extract_raw_lines_from_pdf(doc)
-
-        # Step 2: Detect repeating header/footer boilerplate and exclude them
-        detect_and_mark_boilerplate(raw_lines, num_pages=len(doc))
-
-        # Step 3: Classify lines into headings (H1, H2, H3...) and body text
-        processed_lines, _ = classify_lines(raw_lines, median_font_size)
-
-        # Step 4: Build hierarchical nested section tree
-        root_section = build_section_tree(processed_lines)
-
-        # If root has exactly one top-level subsection and no loose text/fields of its own,
-        # promote that subsection as the root of the tree
-        if (
-            len(root_section.subsections) == 1
-            and not root_section.text.strip()
-            and not root_section.fields
-        ):
-            return root_section.subsections[0].to_dict()
-
-        return root_section.to_dict()
-
-    finally:
-        doc.close()
+    return extract_direct_sections_from_pdf(pdf_bytes, filename=filename)

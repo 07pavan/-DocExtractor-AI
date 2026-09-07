@@ -25,8 +25,11 @@ NUMBERED_HEADING_REGEX = re.compile(
     re.IGNORECASE,
 )
 
-# Key-Value pattern indicator
-KEY_VALUE_REGEX = re.compile(r"^[A-Za-z0-9\s\/\-#\.\(\)&]{1,50}\s*:\s*.+$")
+# Key-Value pattern indicator (single-line or standalone prompt label)
+KEY_VALUE_REGEX = re.compile(r"^[A-Za-z0-9\s\/\-#\.\(\)&]{1,60}\s*:\s*.+$")
+LABEL_PROMPT_REGEX = re.compile(r"^[A-Za-z0-9\s\/\-#\.\(\)&]{1,60}\s*:$")
+DATE_PATTERN_REGEX = re.compile(r"^\d{1,2}[/\-\.]\d{1,2}[/\-\.]\d{2,4}(\s+\d{1,2}:\d{2}(\s*(AM|PM))?)?$", re.IGNORECASE)
+CURRENCY_PATTERN_REGEX = re.compile(r"^\$[\d,]+(\.\d{2})?$")
 
 
 def is_span_bold(span: dict) -> bool:
@@ -45,7 +48,6 @@ def is_span_bold(span: dict) -> bool:
 
 def extract_raw_lines_from_pdf(doc: fitz.Document) -> Tuple[List[LineInfo], float]:
     """Extracts all text lines and spans from a PyMuPDF document, and computes
-
     the document-wide median font size across all text spans.
     """
     all_font_sizes: List[float] = []
@@ -140,7 +142,6 @@ def extract_raw_lines_from_pdf(doc: fitz.Document) -> Tuple[List[LineInfo], floa
 
 def detect_and_mark_boilerplate(lines: List[LineInfo], num_pages: int) -> None:
     """Identifies repeating headers, footers, and page numbers across pages,
-
     and marks them as boilerplate (to be excluded from output).
     """
     if num_pages <= 1:
@@ -151,37 +152,48 @@ def detect_and_mark_boilerplate(lines: List[LineInfo], num_pages: int) -> None:
                 line.is_boilerplate = True
         return
 
-    # Count how many distinct pages a (rounded bbox y, normalized text) appears on
+    # Count how many distinct pages a (rounded bbox y, normalized text) appears on in header/footer zones
     position_text_page_map = defaultdict(set)
 
     for line in lines:
         cleaned = " ".join(line.text.lower().split())
-        # Round y coordinates to nearest 4 points to account for slight rendering shifts
-        rounded_y0 = round(line.bbox[1] / 4.0) * 4
-        position_key = (rounded_y0, cleaned)
-        position_text_page_map[position_key].add(line.page_num)
+        # Standalone page number
+        if PAGE_NUMBER_REGEX.match(line.text.strip()):
+            line.is_boilerplate = True
+            continue
 
+        # Common SERFF footer pattern
+        if "pdf pipeline for serff tracking number" in cleaned:
+            line.is_boilerplate = True
+            continue
+
+        # Header / footer zones: top 70pt or bottom 70pt of typical 792pt page
+        if line.bbox[1] < 70 or line.bbox[3] > 720:
+            rounded_y0 = round(line.bbox[1] / 5.0) * 5
+            position_key = (rounded_y0, cleaned)
+            position_text_page_map[position_key].add(line.page_num)
+
+    # Repeating across at least 3 pages or > 25% of pages
+    min_pages_threshold = max(3, int(num_pages * 0.25))
     boilerplate_keys = {
         pos_key
         for pos_key, pages in position_text_page_map.items()
-        if len(pages) >= 2 or (len(pages) >= max(2, int(num_pages * 0.4)))
+        if len(pages) >= min_pages_threshold
     }
 
     for line in lines:
+        if line.is_boilerplate:
+            continue
         cleaned = " ".join(line.text.lower().split())
-        rounded_y0 = round(line.bbox[1] / 4.0) * 4
+        rounded_y0 = round(line.bbox[1] / 5.0) * 5
         position_key = (rounded_y0, cleaned)
 
-        # Mark as boilerplate if repeating at same position across pages or matching page number pattern
         if position_key in boilerplate_keys:
-            line.is_boilerplate = True
-        elif PAGE_NUMBER_REGEX.match(line.text.strip()):
             line.is_boilerplate = True
 
 
 def calculate_heading_score(line: LineInfo, median_font_size: float) -> float:
     """Calculates a heuristic score for whether a line is a heading candidate.
-
     Scores >= 4.0 are considered headings.
     """
     text = line.text.strip()
@@ -190,63 +202,66 @@ def calculate_heading_score(line: LineInfo, median_font_size: float) -> float:
     line_height = max(1.0, line.bbox[3] - line.bbox[1])
     size_ratio = font_size / max(1.0, median_font_size)
 
-    # Fast check: If line matches "Label: Value" and is standard font size (< 1.2x median) and not numbered
-    if KEY_VALUE_REGEX.match(text) and size_ratio < 1.25 and not NUMBERED_HEADING_REGEX.match(text):
+    # Fast check: Dates and currencies are never headings
+    if DATE_PATTERN_REGEX.match(text) or CURRENCY_PATTERN_REGEX.match(text):
         return 0.0
 
-    # If font size is at or below median and line is not bold and has no numbered prefix, it's body text
-    if size_ratio <= 1.05 and not line.is_bold and not NUMBERED_HEADING_REGEX.match(text):
+    # Common salutations and closures
+    if text.lower() in ("sincerely,", "regards,", "dear sir/madam,", "respectfully,"):
+        return 0.0
+
+    # If line matches "Label: Value" or "Label:" and is not distinctly large
+    if (KEY_VALUE_REGEX.match(text) or LABEL_PROMPT_REGEX.match(text)) and size_ratio < 1.30 and not NUMBERED_HEADING_REGEX.match(text):
+        return 0.0
+
+    # If font size is at or below median and line has no numbered prefix and no large margins, it's body text
+    if size_ratio <= 1.05 and not NUMBERED_HEADING_REGEX.match(text) and not (line.is_bold and size_ratio >= 1.0 and line_len <= 35 and line.margin_top >= line_height * 1.5):
         return 0.0
 
     score = 0.0
 
     # 1. Font size relative to document median font size
-    if size_ratio >= 1.6:
-        score += 6.0
-    elif size_ratio >= 1.35:
-        score += 4.5
+    if size_ratio >= 1.35:
+        score += 8.0  # Major section header (e.g. 14pt vs 10pt)
     elif size_ratio >= 1.15:
-        score += 3.0
+        score += 5.0  # Subsection header (e.g. 12pt vs 10pt)
     elif size_ratio >= 1.05:
-        score += 1.0
+        score += 1.5
     elif size_ratio < 0.90:
-        score -= 4.0  # Likely footnotes, small captions, annotations
+        score -= 5.0  # Footnotes, small captions
 
     # 2. Bold flag
     if line.is_bold:
-        score += 3.0
+        score += 2.5
 
-    # 3. Line length (short lines score higher; full-width sentences score lower)
-    if line_len <= 35:
+    # 3. Line length (short titles score higher)
+    if line_len <= 30:
         score += 2.0
-    elif line_len <= 65:
+    elif line_len <= 60:
         score += 1.0
-    elif line_len <= 95:
+    elif line_len <= 90:
         score += 0.0
-    elif line_len <= 130:
+    elif line_len <= 120:
         score -= 2.0
     else:
-        score -= 4.5  # Long paragraphs
+        score -= 5.0  # Long paragraphs
 
-    # 4. Standalone whitespace (whitespace above and below vs wrapped body)
-    if line.margin_top >= line_height * 0.7:
+    # 4. Standalone whitespace
+    if line.margin_top >= line_height * 0.8:
         score += 1.5
-    if line.margin_bottom >= line_height * 0.5:
+    if line.margin_bottom >= line_height * 0.4:
         score += 1.0
 
     # 5. Punctuation & Capitalization cues
-    # Check for numbered section headers e.g. "1.1 Overview"
     if NUMBERED_HEADING_REGEX.match(text):
-        score += 2.5
+        score += 3.0
 
-    # If it ends with a period (and is not an abbreviation or section number), penalize
     if text.endswith(".") and not NUMBERED_HEADING_REGEX.match(text) and line_len > 25:
-        score -= 3.0
+        score -= 3.5
 
-    # Check for uppercase or title case
     if text.isupper() and line_len >= 4:
-        score += 1.5
-    elif text.istitle() and line_len <= 60:
+        score += 1.0
+    elif text.istitle() and line_len <= 50:
         score += 1.0
 
     return score

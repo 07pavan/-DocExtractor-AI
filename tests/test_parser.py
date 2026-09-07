@@ -1,9 +1,11 @@
 """Tests for the PDF heading/body extraction engine.
 """
 
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).parent.parent))
 import os
 import json
-from pathlib import Path
 import pytest
 try:
     import pymupdf as fitz
@@ -165,4 +167,9 @@ def test_extract_document_structure():
 
 
 if __name__ == "__main__":
-    pytest.main(["-v", "-s", __file__])
+    try:
+        import pytest
+        pytest.main(["-v", "-s", __file__])
+    except ImportError:
+        test_extract_document_structure()
+        print("\nAll parser tests passed successfully!")
