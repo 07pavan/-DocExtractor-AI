@@ -1,5 +1,6 @@
 # Core Extraction & API Dependencies
 pymupdf==1.24.1
+pdfplumber>=0.11.0
 pytest==8.1.1
 fastapi==0.110.0
 uvicorn==0.29.0

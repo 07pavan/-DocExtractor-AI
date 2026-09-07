@@ -45,4 +45,5 @@ class ExtractionResponse(BaseModel):
     fields: Union[Dict[str, Any], List[Dict[str, Any]]] = Field(default_factory=list)
     sections: List[Dict[str, Any]] = Field(default_factory=list)
     subsections: List[Dict[str, Any]] = Field(default_factory=list)
+    tables: List[Dict[str, Any]] = Field(default_factory=list)
     summary: Optional[Dict[str, Any]] = None

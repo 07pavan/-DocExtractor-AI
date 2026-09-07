@@ -1,31 +1,24 @@
 import React from 'react';
 
-/**
- * KpiStrip — Specify Metric Cards with Interactive Grounding Citation Jumps
- */
-
 const STATUS_COLORS = {
-  approved: 'bg-mint-wash text-fern-pop border-fern-pop/30',
-  filed: 'bg-mint-wash text-fern-pop border-fern-pop/30',
-  'received and filed': 'bg-mint-wash text-fern-pop border-fern-pop/30',
-  active: 'bg-mint-wash text-fern-pop border-fern-pop/30',
-  satisfied: 'bg-mint-wash text-fern-pop border-fern-pop/30',
-  pending: 'bg-apricot-wash text-amber-800 border-amber-300',
-  review: 'bg-apricot-wash text-amber-800 border-amber-300',
-  'under review': 'bg-apricot-wash text-amber-800 border-amber-300',
-  submitted: 'bg-lilac-wash text-iris border-iris/30',
-  rejected: 'bg-rose-50 text-rose-800 border-rose-300',
-  denied: 'bg-rose-50 text-rose-800 border-rose-300',
-  withdrawn: 'bg-rose-50 text-rose-800 border-rose-300',
+  approved: 'bg-emerald-950/60 text-emerald-400 border-emerald-800/40',
+  filed: 'bg-emerald-950/60 text-emerald-400 border-emerald-800/40',
+  active: 'bg-emerald-950/60 text-emerald-400 border-emerald-800/40',
+  satisfied: 'bg-emerald-950/60 text-emerald-400 border-emerald-800/40',
+  pending: 'bg-amber-950/60 text-amber-400 border-amber-800/40',
+  review: 'bg-amber-950/60 text-amber-400 border-amber-800/40',
+  submitted: 'bg-indigo-950/60 text-indigo-300 border-indigo-800/40',
+  rejected: 'bg-rose-950/60 text-rose-400 border-rose-800/40',
+  denied: 'bg-rose-950/60 text-rose-400 border-rose-800/40',
 };
 
 function getStatusColor(value) {
-  if (!value) return 'bg-cloud text-iron border-mist';
+  if (!value) return 'bg-zinc-800 text-zinc-300 border-zinc-700';
   const lower = value.toLowerCase().trim();
   for (const [key, cls] of Object.entries(STATUS_COLORS)) {
     if (lower.includes(key)) return cls;
   }
-  return 'bg-lilac-wash text-iris border-iris/20';
+  return 'bg-indigo-950/60 text-indigo-300 border-indigo-800/40';
 }
 
 function KpiCard({ label, value, type, nullLabel, sourceEvidence, onCitationClick }) {
@@ -33,63 +26,35 @@ function KpiCard({ label, value, type, nullLabel, sourceEvidence, onCitationClic
 
   if (isNull) {
     return (
-      <div className="flex flex-col justify-between p-4 rounded-card border border-dashed border-mist bg-cloud/50 min-w-[170px] flex-1">
-        <span className="text-[11px] font-semibold text-graphite uppercase tracking-wider">
+      <div className="flex flex-col justify-between p-4 rounded-xl border border-dashed border-zinc-800 bg-zinc-950/40 min-w-[150px] flex-1">
+        <span className="text-[11px] font-semibold text-zinc-400 uppercase tracking-wider">
           {label}
         </span>
-        <span className="text-xs text-graphite italic flex items-center space-x-1.5 mt-2">
+        <span className="text-xs text-zinc-600 italic flex items-center space-x-1 mt-2">
           <span>ℹ️</span>
-          <span>{nullLabel || 'Not found in document'}</span>
+          <span>{nullLabel || 'Not found'}</span>
         </span>
       </div>
     );
   }
 
   // Currency rendering
-  if (type === 'currency') {
+  if (type === 'currency' || (typeof value === 'string' && value.includes('$'))) {
     return (
-      <div className="flex flex-col justify-between p-4 rounded-card border border-mist bg-pure-white shadow-subtle-2 min-w-[170px] flex-1">
+      <div className="flex flex-col justify-between p-4 rounded-xl border border-zinc-800 bg-zinc-950 shadow-md min-w-[150px] flex-1">
         <div className="flex items-center justify-between">
-          <span className="text-[11px] font-semibold text-iron uppercase tracking-wider">
+          <span className="text-[11px] font-semibold text-zinc-400 uppercase tracking-wider">
             {label}
           </span>
-          <span className="text-xs text-fern-pop font-bold">USD</span>
+          <span className="text-[10px] text-emerald-400 font-bold font-mono">USD</span>
         </div>
         <div className="mt-2 flex items-baseline justify-between gap-1 flex-wrap">
-          <span className="text-lg font-bold text-studio-slate font-mono">{value}</span>
+          <span className="text-lg font-bold text-emerald-400 font-mono">{value}</span>
           {sourceEvidence?.source_page && (
             <button
               type="button"
               onClick={() => onCitationClick && onCitationClick(sourceEvidence.source_page, sourceEvidence.source_text || value)}
-              className="text-[10px] text-iris bg-lilac-wash hover:bg-iris hover:text-white px-1.5 py-0.5 rounded-control font-semibold cursor-pointer transition"
-              title={sourceEvidence.source_text ? `Jump to Page ${sourceEvidence.source_page}: "${sourceEvidence.source_text}"` : `Jump to Page ${sourceEvidence.source_page}`}
-            >
-              p.{sourceEvidence.source_page} ↗
-            </button>
-          )}
-        </div>
-      </div>
-    );
-  }
-
-  // Date rendering
-  if (type === 'date') {
-    return (
-      <div className="flex flex-col justify-between p-4 rounded-card border border-mist bg-pure-white shadow-subtle-2 min-w-[170px] flex-1">
-        <div className="flex items-center justify-between">
-          <span className="text-[11px] font-semibold text-iron uppercase tracking-wider">
-            {label}
-          </span>
-          <span className="text-xs text-cobalt-pop font-bold">Date</span>
-        </div>
-        <div className="mt-2 flex items-baseline justify-between gap-1 flex-wrap">
-          <span className="text-sm font-bold text-studio-slate font-mono">{value}</span>
-          {sourceEvidence?.source_page && (
-            <button
-              type="button"
-              onClick={() => onCitationClick && onCitationClick(sourceEvidence.source_page, sourceEvidence.source_text || value)}
-              className="text-[10px] text-iris bg-lilac-wash hover:bg-iris hover:text-white px-1.5 py-0.5 rounded-control font-semibold cursor-pointer transition"
-              title={sourceEvidence.source_text ? `Jump to Page ${sourceEvidence.source_page}: "${sourceEvidence.source_text}"` : `Jump to Page ${sourceEvidence.source_page}`}
+              className="text-[10px] text-indigo-300 bg-indigo-950 hover:bg-indigo-700 hover:text-white px-1.5 py-0.5 rounded font-semibold cursor-pointer transition border border-indigo-800/40"
             >
               p.{sourceEvidence.source_page} ↗
             </button>
@@ -103,12 +68,12 @@ function KpiCard({ label, value, type, nullLabel, sourceEvidence, onCitationClic
   if (type === 'status') {
     const colorClass = getStatusColor(value);
     return (
-      <div className="flex flex-col justify-between p-4 rounded-card border border-mist bg-pure-white shadow-subtle-2 min-w-[170px] flex-1">
-        <span className="text-[11px] font-semibold text-iron uppercase tracking-wider">
+      <div className="flex flex-col justify-between p-4 rounded-xl border border-zinc-800 bg-zinc-950 shadow-md min-w-[150px] flex-1">
+        <span className="text-[11px] font-semibold text-zinc-400 uppercase tracking-wider">
           {label}
         </span>
         <div className="mt-2">
-          <span className={`text-xs font-bold px-3 py-1 rounded-pill border inline-block ${colorClass}`}>
+          <span className={`text-xs font-bold px-2.5 py-0.5 rounded border inline-block ${colorClass}`}>
             {value}
           </span>
         </div>
@@ -118,20 +83,19 @@ function KpiCard({ label, value, type, nullLabel, sourceEvidence, onCitationClic
 
   // Default text card
   return (
-    <div className="flex flex-col justify-between p-4 rounded-card border border-mist bg-pure-white shadow-subtle-2 min-w-[170px] flex-1">
-      <span className="text-[11px] font-semibold text-iron uppercase tracking-wider">
+    <div className="flex flex-col justify-between p-4 rounded-xl border border-zinc-800 bg-zinc-950 shadow-md min-w-[150px] flex-1">
+      <span className="text-[11px] font-semibold text-zinc-400 uppercase tracking-wider">
         {label}
       </span>
       <div className="mt-2 flex items-baseline justify-between gap-1 flex-wrap">
-        <span className="text-xs font-bold text-studio-slate truncate max-w-[180px]" title={value}>
+        <span className="text-xs font-bold text-zinc-200 truncate max-w-[180px]" title={value}>
           {value}
         </span>
         {sourceEvidence?.source_page && (
           <button
             type="button"
             onClick={() => onCitationClick && onCitationClick(sourceEvidence.source_page, sourceEvidence.source_text || value)}
-            className="text-[10px] text-iris bg-lilac-wash hover:bg-iris hover:text-white px-1.5 py-0.5 rounded-control font-semibold cursor-pointer transition"
-            title={sourceEvidence.source_text ? `Jump to Page ${sourceEvidence.source_page}: "${sourceEvidence.source_text}"` : `Jump to Page ${sourceEvidence.source_page}`}
+            className="text-[10px] text-indigo-300 bg-indigo-950 hover:bg-indigo-700 hover:text-white px-1.5 py-0.5 rounded font-semibold cursor-pointer transition border border-indigo-800/40"
           >
             p.{sourceEvidence.source_page} ↗
           </button>
@@ -153,21 +117,15 @@ export default function KpiStrip({ summary, onCitationClick }) {
   if (kpiFields.length === 0) return null;
 
   return (
-    <div className="space-y-4">
-      {/* Document Archetype Pill Badge */}
-      <div className="flex items-center space-x-2.5">
-        <span className="text-[11px] font-bold text-graphite uppercase tracking-widest">
-          Document Archetype
+    <div className="space-y-3">
+      {/* Category / Document badge */}
+      <div className="flex items-center space-x-2">
+        <span className="text-[11px] font-bold text-zinc-400 uppercase tracking-widest">
+          Document Type:
         </span>
-        <span className="pill-badge !bg-studio-slate !text-pure-white !border-studio-slate">
-          <span className="text-iris">⬡</span>
-          <span>{doc_type_display || 'Document'}</span>
+        <span className="text-xs py-0.5 px-2 bg-indigo-950 text-indigo-300 rounded border border-indigo-800/50 font-medium">
+          {doc_type_display || 'Document'}
         </span>
-        {summary.classification_confidence > 0 && (
-          <span className="pill-badge !bg-mint-wash !text-fern-pop !border-fern-pop/20 !text-[11px]">
-            {(summary.classification_confidence * 100).toFixed(0)}% Match
-          </span>
-        )}
       </div>
 
       {/* KPI Cards Grid */}

@@ -2,8 +2,9 @@ import { useState, useMemo } from 'react';
 import * as XLSX from 'xlsx';
 import SectionTree from './SectionTree';
 import SummaryCard from './SummaryCard';
+import TableView from './TableView';
+import ChartsView from './ChartsView';
 import PdfSideBySideViewer from './PdfSideBySideViewer';
-import { sectionMatchesSearch } from './SectionNode';
 
 function extractTopLevelSections(doc) {
   if (!doc) return [];
@@ -40,11 +41,13 @@ function countMatchingSectionsRecursively(sections, query) {
   for (const s of sections) {
     const selfMatches =
       (s.heading && s.heading.toLowerCase().includes(q)) ||
+      (s.title && s.title.toLowerCase().includes(q)) ||
       (s.text && s.text.toLowerCase().includes(q)) ||
-      (s.fields && s.fields.some((f) =>
-        (f.label && f.label.toLowerCase().includes(q)) ||
-        (f.value && f.value.toLowerCase().includes(q))
-      ));
+      (s.fields && (Array.isArray(s.fields) ? s.fields : Object.entries(s.fields)).some((f) => {
+        const label = f.label || f[0] || '';
+        const value = f.value || f[1] || '';
+        return String(label).toLowerCase().includes(q) || String(value).toLowerCase().includes(q);
+      }));
 
     if (selfMatches) count += 1;
     if (s.subsections && Array.isArray(s.subsections)) {
@@ -70,8 +73,8 @@ function collectAllTables(sections) {
 function countTotalFields(sections) {
   let total = 0;
   for (const s of sections) {
-    if (s.fields && Array.isArray(s.fields)) {
-      total += s.fields.length;
+    if (s.fields) {
+      total += Array.isArray(s.fields) ? s.fields.length : Object.keys(s.fields).length;
     }
     if (s.subsections && Array.isArray(s.subsections)) {
       total += countTotalFields(s.subsections);
@@ -82,30 +85,13 @@ function countTotalFields(sections) {
 
 function cleanTableForExport(table) {
   if (!table) return { title: 'Table', headers: [], rows: [] };
-  
   const headers = table.headers || [];
   const rows = table.rows || [];
-
-  const pageColIndices = new Set();
-  headers.forEach((h, idx) => {
-    const hStr = String(h || '').toLowerCase().trim();
-    if (hStr === 'page location' || hStr === 'page' || hStr === 'page #' || hStr === 'page no') {
-      pageColIndices.add(idx);
-    }
-  });
-
-  const cleanHeaders = headers.filter((_, idx) => !pageColIndices.has(idx));
-  const cleanRows = rows.map((r) => {
-    if (Array.isArray(r)) {
-      return r.filter((_, idx) => !pageColIndices.has(idx));
-    }
-    return r;
-  });
-
-  return { title: table.title, headers: cleanHeaders, rows: cleanRows };
+  return { title: table.title || 'Table', headers, rows };
 }
 
 export default function DocumentViewer({ document: doc, uploadedFile = null, onBackToUpload }) {
+  const [activeTab, setActiveTab] = useState('sections'); // 'sections' | 'charts' | 'tables' | 'json'
   const [searchQuery, setSearchQuery] = useState('');
   const [copied, setCopied] = useState(false);
   
@@ -121,7 +107,14 @@ export default function DocumentViewer({ document: doc, uploadedFile = null, onB
     [sections, searchQuery, totalCount]
   );
 
-  const allTables = useMemo(() => collectAllTables(sections), [sections]);
+  const allTables = useMemo(() => {
+    const list = collectAllTables(sections);
+    if (doc.tables && Array.isArray(doc.tables)) {
+      list.push(...doc.tables);
+    }
+    return list;
+  }, [sections, doc]);
+
   const totalFields = useMemo(() => countTotalFields(sections), [sections]);
 
   if (!doc) return null;
@@ -130,7 +123,6 @@ export default function DocumentViewer({ document: doc, uploadedFile = null, onB
   const cleanBaseName = filename.replace(/\.[^/.]+$/, '');
   const summary = doc.summary || (doc.sections && typeof doc.sections === 'object' ? doc.sections.summary : null);
 
-  // Citation click handler -> opens side-by-side split screen and jumps to cited page
   const handleCitationClick = (pageNumber, quoteText = '') => {
     if (pageNumber && pageNumber > 0) {
       setTargetCitationPage(pageNumber);
@@ -150,7 +142,7 @@ export default function DocumentViewer({ document: doc, uploadedFile = null, onB
     downloadAnchor.remove();
   };
 
-  // 2. Export Excel (.xlsx) with dedicated clean worksheets
+  // 2. Export Excel (.xlsx) with dedicated worksheets
   const handleExportExcel = () => {
     if (allTables.length === 0) {
       alert("No structured tables found in this extraction to export to Excel.");
@@ -163,18 +155,13 @@ export default function DocumentViewer({ document: doc, uploadedFile = null, onB
       const cleanTab = cleanTableForExport(tab);
       const sheetData = [];
 
-      // Add Table Title
       if (cleanTab.title) {
         sheetData.push([cleanTab.title]);
         sheetData.push([]);
       }
-
-      // Add Headers
       if (cleanTab.headers && cleanTab.headers.length > 0) {
         sheetData.push(cleanTab.headers);
       }
-
-      // Add Data Rows
       if (cleanTab.rows && cleanTab.rows.length > 0) {
         cleanTab.rows.forEach(r => {
           sheetData.push(Array.isArray(r) ? r : [r]);
@@ -182,15 +169,13 @@ export default function DocumentViewer({ document: doc, uploadedFile = null, onB
       }
 
       const worksheet = XLSX.utils.aoa_to_sheet(sheetData);
-
       let sheetName = cleanTab.title 
         ? cleanTab.title.replace(/[:\\/?*\[\]]/g, '').substring(0, 28) 
         : `Table_${idx + 1}`;
       
       if (!sheetName.trim()) sheetName = `Table_${idx + 1}`;
-      
       if (workbook.SheetNames.includes(sheetName)) {
-        sheetName = `${sheetName.substring(0, 25)}_${idx + 1}`;
+        sheetName = `${sheetName.substring(0, 24)}_${idx + 1}`;
       }
 
       XLSX.utils.book_append_sheet(workbook, worksheet, sheetName);
@@ -236,155 +221,231 @@ export default function DocumentViewer({ document: doc, uploadedFile = null, onB
   };
 
   return (
-    <div className="space-y-6 animate-fadeIn">
-      {/* Top Breadcrumb & Navigation Back Bar */}
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 bg-pure-white p-4 rounded-card border border-mist shadow-subtle-2">
+    <div className="space-y-6 animate-fadeIn text-zinc-100">
+      {/* Top Navigation & Action Bar */}
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 bg-zinc-900 p-4 rounded-xl border border-zinc-800 shadow-md">
         <button
           onClick={onBackToUpload}
-          className="btn-pill-ghost !text-xs !py-1.5 !px-3.5"
+          className="text-xs py-2 px-3.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border border-zinc-700 transition flex items-center gap-1.5"
         >
           <span>←</span>
-          <span>Back to Upload / Document Vault</span>
+          <span>Back to Upload & Vault</span>
         </button>
 
-        <div className="flex items-center space-x-2 text-xs text-iron flex-wrap">
-          {/* Split-Screen PDF Canvas Toggle */}
+        <div className="flex items-center space-x-2 text-xs text-zinc-400 flex-wrap">
           <button
             type="button"
             onClick={() => setShowSideBySide(!showSideBySide)}
-            className={`btn-pill-ghost !text-xs !py-1 !px-3 border ${
+            className={`text-xs py-1.5 px-3 rounded-lg border transition flex items-center gap-1.5 ${
               showSideBySide
-                ? 'bg-lilac-wash border-iris text-iris font-bold'
-                : 'hover:border-iris hover:text-iris'
+                ? 'bg-indigo-950/80 border-indigo-500 text-indigo-300 font-semibold'
+                : 'bg-zinc-800/80 border-zinc-700 text-zinc-300 hover:border-zinc-500'
             }`}
-            title="Toggle Split-Screen PDF Viewer"
           >
             <span>📑</span>
-            <span>{showSideBySide ? 'Hide Original PDF' : 'View Original PDF Side-by-Side'}</span>
+            <span>{showSideBySide ? 'Hide Original PDF' : 'Side-by-Side PDF'}</span>
           </button>
 
-          <span className="pill-badge !text-xs !py-1 !px-2.5 !bg-cloud">
-            <span className="text-iris font-bold">⬡</span>
-            <span>{totalCount} Sections</span>
+          <span className="text-xs py-1 px-2.5 bg-zinc-800 text-zinc-300 rounded border border-zinc-700">
+            ⬡ {totalCount} Sections
           </span>
-          <span className="pill-badge !text-xs !py-1 !px-2.5 !bg-cloud">
-            <span>📊</span>
-            <span>{allTables.length} Tables</span>
+          <span className="text-xs py-1 px-2.5 bg-zinc-800 text-zinc-300 rounded border border-zinc-700">
+            📊 {allTables.length} Tables
           </span>
-          <span className="pill-badge !text-xs !py-1 !px-2.5 !bg-cloud">
-            <span>📋</span>
-            <span>{totalFields} Fields</span>
+          <span className="text-xs py-1 px-2.5 bg-zinc-800 text-zinc-300 rounded border border-zinc-700">
+            📋 {totalFields} Fields
           </span>
         </div>
       </div>
 
-      {/* Main Container: Full Width or Split-Screen Grid */}
+      {/* Split-Screen Grid or Full-Width */}
       <div className={`grid gap-6 transition-all duration-300 ${showSideBySide ? 'grid-cols-1 lg:grid-cols-12' : 'grid-cols-1'}`}>
         
         {/* Left Column: Structured Intelligence Stream */}
         <div className={`space-y-6 ${showSideBySide ? 'lg:col-span-7' : 'w-full'}`}>
-          {/* Main Document Title & Multi-Format Export Action Bar */}
-          <div className="card-specify space-y-4">
+          {/* Header Card */}
+          <div className="p-5 rounded-xl bg-zinc-900 border border-zinc-800 shadow-md space-y-4">
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
               <div className="space-y-1">
                 <div className="flex items-center space-x-2">
-                  <span className="pill-badge !text-[11px] !py-0.5 !px-2.5 !bg-mint-wash !text-fern-pop !border-fern-pop/20">
-                    Verified Extraction
+                  <span className="text-[11px] py-0.5 px-2.5 bg-emerald-950 text-emerald-400 border border-emerald-800 rounded font-medium">
+                    Verified Extraction (pdfplumber + PyMuPDF)
                   </span>
                   {doc.document_id && (
-                    <span className="text-[11px] text-graphite font-mono">
+                    <span className="text-[11px] text-zinc-500 font-mono">
                       ID: {String(doc.document_id).substring(0, 8)}...
                     </span>
                   )}
                 </div>
-                <h2 className="text-2xl sm:text-3xl font-bold text-studio-slate tracking-tight truncate max-w-2xl" title={filename}>
+                <h2 className="text-2xl font-bold text-zinc-100 tracking-tight truncate max-w-2xl" title={filename}>
                   {filename}
                 </h2>
               </div>
 
-              {/* Export Action Buttons */}
+              {/* Action Buttons */}
               <div className="flex flex-wrap items-center gap-2">
                 <button
                   onClick={handleExportExcel}
                   disabled={allTables.length === 0}
-                  className="btn-pill-dark !py-2 !px-3.5 !text-xs disabled:opacity-40"
-                  title="Export all tables to multi-sheet Excel spreadsheet"
+                  className="text-xs py-2 px-3.5 rounded-lg bg-emerald-700 hover:bg-emerald-600 text-zinc-100 font-medium transition disabled:opacity-40 flex items-center gap-1.5"
+                  title="Export tables to multi-sheet Excel (.xlsx)"
                 >
                   <span>📗</span>
-                  <span>Export to Excel (.xlsx)</span>
+                  <span>Excel (.xlsx)</span>
                 </button>
 
                 <button
                   onClick={handleExportCSV}
                   disabled={allTables.length === 0}
-                  className="btn-pill-ghost !py-2 !px-3.5 !text-xs disabled:opacity-40"
-                  title="Export all tables to CSV"
+                  className="text-xs py-2 px-3 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border border-zinc-700 transition disabled:opacity-40"
+                  title="Export tables as CSV"
                 >
-                  <span>📊</span>
-                  <span>CSV</span>
+                  CSV
                 </button>
 
                 <button
                   onClick={handleExportJSON}
-                  className="btn-pill-ghost !py-2 !px-3.5 !text-xs"
-                  title="Download entire hierarchical tree as JSON"
+                  className="text-xs py-2 px-3 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border border-zinc-700 transition"
+                  title="Download JSON structure"
                 >
-                  <span>💾</span>
-                  <span>JSON</span>
+                  JSON
                 </button>
 
                 <button
                   onClick={handleCopyJSON}
-                  className="btn-pill-ghost !py-2 !px-3 !text-xs"
-                  title="Copy complete JSON tree to clipboard"
+                  className="text-xs py-2 px-3 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border border-zinc-700 transition"
+                  title="Copy JSON to clipboard"
                 >
-                  <span>{copied ? '✓ Copied' : '📋'}</span>
+                  {copied ? '✓ Copied' : '📋 Copy'}
                 </button>
               </div>
             </div>
 
-            {/* Live Search and Filter Bar */}
-            <div className="relative pt-2">
-              <input
-                type="text"
-                placeholder="Search headings, fields, or text in this document..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full text-xs pl-9 pr-8 py-2.5 bg-cloud border border-mist focus:border-iris rounded-control focus:outline-none transition shadow-subtle-2 text-studio-slate"
-              />
-              <span className="absolute left-3 top-5 text-graphite text-xs">🔍</span>
-              {searchQuery && (
-                <button
-                  onClick={() => setSearchQuery('')}
-                  className="absolute right-3 top-5 text-graphite hover:text-studio-slate text-xs font-bold"
-                >
-                  ✕
-                </button>
-              )}
+            {/* Navigation Tabs */}
+            <div className="flex items-center space-x-1 border-b border-zinc-800 pt-2 overflow-x-auto">
+              <button
+                onClick={() => setActiveTab('sections')}
+                className={`text-xs py-2 px-4 rounded-t-lg font-medium border-b-2 transition-colors whitespace-nowrap flex items-center gap-1.5 ${
+                  activeTab === 'sections'
+                    ? 'border-indigo-500 text-indigo-400 bg-zinc-800/60'
+                    : 'border-transparent text-zinc-400 hover:text-zinc-200'
+                }`}
+              >
+                <span>📑</span> Sections & Content ({matchCount})
+              </button>
+
+              <button
+                onClick={() => setActiveTab('charts')}
+                className={`text-xs py-2 px-4 rounded-t-lg font-medium border-b-2 transition-colors whitespace-nowrap flex items-center gap-1.5 ${
+                  activeTab === 'charts'
+                    ? 'border-indigo-500 text-indigo-400 bg-zinc-800/60'
+                    : 'border-transparent text-zinc-400 hover:text-zinc-200'
+                }`}
+              >
+                <span>📈</span> Analytics & Charts
+              </button>
+
+              <button
+                onClick={() => setActiveTab('tables')}
+                className={`text-xs py-2 px-4 rounded-t-lg font-medium border-b-2 transition-colors whitespace-nowrap flex items-center gap-1.5 ${
+                  activeTab === 'tables'
+                    ? 'border-indigo-500 text-indigo-400 bg-zinc-800/60'
+                    : 'border-transparent text-zinc-400 hover:text-zinc-200'
+                }`}
+              >
+                <span>📊</span> Sortable Tables ({allTables.length})
+              </button>
+
+              <button
+                onClick={() => setActiveTab('json')}
+                className={`text-xs py-2 px-4 rounded-t-lg font-medium border-b-2 transition-colors whitespace-nowrap flex items-center gap-1.5 ${
+                  activeTab === 'json'
+                    ? 'border-indigo-500 text-indigo-400 bg-zinc-800/60'
+                    : 'border-transparent text-zinc-400 hover:text-zinc-200'
+                }`}
+              >
+                <span>💻</span> Raw JSON
+              </button>
             </div>
+
+            {/* Live Search Input (for sections/tables) */}
+            {activeTab === 'sections' && (
+              <div className="relative pt-1">
+                <input
+                  type="text"
+                  placeholder="Filter and search headings, fields, or text in this document..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="w-full text-xs pl-9 pr-8 py-2.5 bg-zinc-950 border border-zinc-800 focus:border-indigo-500 rounded-lg focus:outline-none transition text-zinc-200 placeholder-zinc-500"
+                />
+                <span className="absolute left-3 top-4 text-zinc-500 text-xs">🔍</span>
+                {searchQuery && (
+                  <button
+                    onClick={() => setSearchQuery('')}
+                    className="absolute right-3 top-3.5 text-zinc-500 hover:text-zinc-200 text-xs font-bold"
+                  >
+                    ✕
+                  </button>
+                )}
+              </div>
+            )}
           </div>
 
-          {/* Executive Summary Card with Clickable Citations */}
-          {summary && (
+          {/* Executive Summary Card */}
+          {summary && activeTab === 'sections' && (
             <SummaryCard
               summary={summary}
               onCitationClick={handleCitationClick}
             />
           )}
 
-          {/* Hierarchical Document Section Tree */}
-          <div className="space-y-3">
-            <div className="flex items-center justify-between px-1">
-              <h3 className="text-xs font-bold uppercase tracking-widest text-graphite">
-                Document Structure & Section Breakdown
-              </h3>
-              <span className="pill-badge !text-[11px] !py-0.5 !px-2.5 !bg-cloud">
-                Showing {matchCount} of {totalCount} sections
-              </span>
-            </div>
+          {/* Tab 1: Sections & Hierarchical Structure */}
+          {activeTab === 'sections' && (
+            <div className="space-y-3">
+              <div className="flex items-center justify-between px-1">
+                <h3 className="text-xs font-bold uppercase tracking-widest text-zinc-400">
+                  Document Sections Breakdown
+                </h3>
+                <span className="text-[11px] py-0.5 px-2 bg-zinc-800 text-zinc-300 rounded border border-zinc-700">
+                  Showing {matchCount} of {totalCount} sections
+                </span>
+              </div>
 
-            <SectionTree sections={sections} searchQuery={searchQuery} />
-          </div>
+              <SectionTree sections={sections} searchQuery={searchQuery} />
+            </div>
+          )}
+
+          {/* Tab 2: Analytics & Recharts */}
+          {activeTab === 'charts' && (
+            <ChartsView extractionData={doc} />
+          )}
+
+          {/* Tab 3: Tables Tab */}
+          {activeTab === 'tables' && (
+            <div className="space-y-4">
+              <div className="flex items-center justify-between px-1">
+                <h3 className="text-xs font-bold uppercase tracking-widest text-zinc-400">
+                  Extracted Tables & Schedules ({allTables.length})
+                </h3>
+              </div>
+              {allTables.length > 0 ? (
+                <TableView tables={allTables} />
+              ) : (
+                <div className="p-8 text-center bg-zinc-900 border border-zinc-800 rounded-xl text-zinc-400">
+                  No structured tables detected on this document.
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Tab 4: Raw JSON Tab */}
+          {activeTab === 'json' && (
+            <div className="p-4 bg-zinc-950 rounded-xl border border-zinc-800 overflow-x-auto max-h-[600px] overflow-y-auto">
+              <pre className="text-xs font-mono text-emerald-400 leading-relaxed">
+                {JSON.stringify(doc, null, 2)}
+              </pre>
+            </div>
+          )}
         </div>
 
         {/* Right Column: Split-Screen PDF Viewer Canvas */}

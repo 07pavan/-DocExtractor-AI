@@ -38,12 +38,12 @@ def extract_direct_sections_from_pdf(
         return SectionNode(heading="Document", level=0, page=1).to_dict()
 
     try:
-        # Step 1: Detect all vector & positional tables across all pages first
+        # Step 1: Detect all tables across all pages using pdfplumber + PyMuPDF
         all_tables: List[Dict[str, Any]] = []
         for page_idx in range(total_pages):
             page = doc[page_idx]
             page_num = page_idx + 1
-            tables = detect_tables(page, page_num=page_num)
+            tables = detect_tables(page, page_num=page_num, pdf_bytes=pdf_bytes)
             all_tables.extend(tables)
 
         # Step 2: Extract all text lines, spans, fonts, and bounding boxes
@@ -197,6 +197,7 @@ def extract_direct_sections_from_pdf(
             "fields": [],
             "sections": sections_dict_list,
             "subsections": sections_dict_list,
+            "tables": all_tables,
             "summary": summary_payload,
         }
 

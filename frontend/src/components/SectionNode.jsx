@@ -29,21 +29,21 @@ export function sectionMatchesSearch(section, query) {
   return false;
 }
 
-export default function SectionNode({ section, searchQuery = '', depth = 0 }) {
+export default function SectionNode({ section, searchQuery = '', forceExpanded = null, depth = 0 }) {
   const level = section.level || 1;
   const isTopLevel = level <= 1 || depth === 0;
 
   const [expanded, setExpanded] = useState(isTopLevel);
 
   useEffect(() => {
-    if (searchQuery.trim()) {
+    if (forceExpanded !== null) {
+      setExpanded(forceExpanded);
+    } else if (searchQuery.trim()) {
       if (sectionMatchesSearch(section, searchQuery.trim())) {
         setExpanded(true);
       }
-    } else {
-      setExpanded(isTopLevel);
     }
-  }, [searchQuery, isTopLevel]);
+  }, [forceExpanded, searchQuery]);
 
   if (!section) return null;
 
@@ -75,59 +75,66 @@ export default function SectionNode({ section, searchQuery = '', depth = 0 }) {
   };
 
   return (
-    <div className={`rounded-card transition-all ${
+    <div className={`rounded-xl transition-all ${
       depth > 0 
-        ? 'mt-3 ml-4 pl-4 border-l border-mist' 
-        : 'mt-4 card-specify overflow-hidden'
+        ? 'mt-3 ml-3 sm:ml-5 pl-3 sm:pl-4 border-l border-zinc-800 bg-zinc-950/40' 
+        : 'mt-3 bg-zinc-900 border border-zinc-800 overflow-hidden shadow-md'
     }`}>
       {/* Clickable Section Header */}
       <div
         onClick={toggleExpand}
-        className={`flex items-center justify-between p-2 select-none transition ${
-          hasContent ? 'cursor-pointer hover:bg-cloud/70 rounded-control' : ''
+        className={`flex items-center justify-between p-3 select-none transition ${
+          hasContent ? 'cursor-pointer hover:bg-zinc-800/60' : ''
         }`}
       >
         <div className="flex items-center space-x-2.5 min-w-0 pr-2 flex-wrap">
           {/* Chevron */}
           {hasContent ? (
-            <div className={`w-6 h-6 rounded-control flex items-center justify-center transition-transform duration-200 ${
-              expanded ? 'rotate-90 text-iris bg-lilac-wash' : 'text-graphite'
+            <div className={`w-5 h-5 rounded flex items-center justify-center transition-transform duration-200 ${
+              expanded ? 'rotate-90 text-indigo-400 bg-indigo-950/60' : 'text-zinc-500'
             }`}>
               <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 5l7 7-7 7" />
               </svg>
             </div>
           ) : (
-            <div className="w-6 h-6" />
+            <div className="w-5 h-5" />
           )}
 
           {/* Section Type Tag */}
           {sectionType && (
-            <span className="pill-badge !text-[10px] !py-0.5 !px-2 !bg-studio-slate !text-pure-white uppercase font-bold tracking-wider">
+            <span className="text-[10px] py-0.5 px-2 bg-zinc-800 text-zinc-300 border border-zinc-700 rounded uppercase font-bold tracking-wider">
               {sectionType}
             </span>
           )}
 
           {/* Section Heading Title */}
-          <h3 className={`font-bold truncate text-studio-slate ${
-            level === 1 ? 'text-base sm:text-lg' : 
-            level === 2 ? 'text-sm sm:text-base' : 
-            'text-xs sm:text-sm'
+          <h3 className={`font-bold truncate text-zinc-100 ${
+            level === 1 ? 'text-sm sm:text-base' : 
+            level === 2 ? 'text-xs sm:text-sm' : 
+            'text-xs'
           }`}>
             {title}
           </h3>
 
-          {/* Confidence Score Pill */}
-          {confidence !== null && confidence > 0 && (
-            <span className="pill-badge !text-[10px] !py-0.5 !px-2 !bg-mint-wash !text-fern-pop font-semibold" title="AI Extraction Confidence Score">
-              {(confidence * 100).toFixed(0)}% Conf
+          {/* Field Count Badge */}
+          {normalizedFields.length > 0 && (
+            <span className="text-[10px] py-0.5 px-1.5 bg-zinc-800 text-zinc-400 rounded">
+              {normalizedFields.length} field{normalizedFields.length !== 1 ? 's' : ''}
+            </span>
+          )}
+
+          {/* Table Count Badge */}
+          {section.tables && section.tables.length > 0 && (
+            <span className="text-[10px] py-0.5 px-1.5 bg-indigo-950 text-indigo-300 border border-indigo-800/40 rounded">
+              {section.tables.length} table{section.tables.length !== 1 ? 's' : ''}
             </span>
           )}
         </div>
 
         {/* Page Tag */}
         {section.page && (
-          <span className="pill-badge !text-[11px] !py-0.5 !px-2.5 !bg-cloud !text-iron flex-shrink-0">
+          <span className="text-[11px] py-0.5 px-2 bg-zinc-800 text-zinc-400 border border-zinc-700 rounded font-mono flex-shrink-0">
             Page {section.page}
           </span>
         )}
@@ -135,10 +142,10 @@ export default function SectionNode({ section, searchQuery = '', depth = 0 }) {
 
       {/* Expanded Section Body */}
       {expanded && (
-        <div className="px-3 pb-3 pt-3 space-y-4">
+        <div className="px-4 pb-4 pt-1 space-y-4 border-t border-zinc-800/50">
           {/* Body Text */}
           {section.text && section.text.trim().length > 0 && (
-            <div className="p-4 bg-cloud rounded-card text-xs sm:text-sm text-studio-slate leading-relaxed whitespace-pre-line border border-mist">
+            <div className="p-3 bg-zinc-950 rounded-lg text-xs sm:text-sm text-zinc-300 leading-relaxed whitespace-pre-line border border-zinc-800/80 font-sans">
               {section.text}
             </div>
           )}
@@ -146,7 +153,7 @@ export default function SectionNode({ section, searchQuery = '', depth = 0 }) {
           {/* Structured Key-Value Fields */}
           {normalizedFields.length > 0 && (
             <div className="space-y-1.5">
-              <span className="text-[10px] font-bold uppercase tracking-widest text-graphite block">
+              <span className="text-[10px] font-bold uppercase tracking-widest text-zinc-500 block">
                 Extracted Fields ({normalizedFields.length})
               </span>
               <FieldTable fields={normalizedFields} />
@@ -156,7 +163,7 @@ export default function SectionNode({ section, searchQuery = '', depth = 0 }) {
           {/* Tables & Schedules */}
           {section.tables && section.tables.length > 0 && (
             <div className="space-y-1.5">
-              <span className="text-[10px] font-bold uppercase tracking-widest text-graphite block">
+              <span className="text-[10px] font-bold uppercase tracking-widest text-zinc-500 block">
                 Extracted Tables ({section.tables.length})
               </span>
               <TableView tables={section.tables} />
@@ -171,6 +178,7 @@ export default function SectionNode({ section, searchQuery = '', depth = 0 }) {
                   key={idx}
                   section={sub}
                   searchQuery={searchQuery}
+                  forceExpanded={forceExpanded}
                   depth={depth + 1}
                 />
               ))}

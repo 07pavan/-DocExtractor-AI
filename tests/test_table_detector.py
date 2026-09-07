@@ -1,14 +1,23 @@
-"""Unit tests for the table detector module.
+"""Unit tests for the clean table detector module.
 """
 
 from pathlib import Path
 import pytest
+
 try:
     import pymupdf as fitz
 except ImportError:
     import fitz  # type: ignore
 
-from extraction.table_detector import detect_tables
+from extraction.table_detector import detect_tables, clean_cell_text
+
+
+def test_clean_cell_text():
+    """Verify clean_cell_text properly sanitizes whitespace and empty values."""
+    assert clean_cell_text(None) == ""
+    assert clean_cell_text("") == ""
+    assert clean_cell_text("  hello   world  ") == "hello world"
+    assert clean_cell_text("line 1\n\nline 2") == "line 1\nline 2"
 
 
 def create_table_test_pdf(output_path: Path) -> None:
@@ -19,7 +28,7 @@ def create_table_test_pdf(output_path: Path) -> None:
     # Heading
     page.insert_text((50, 50), "Financial Summary Table", fontsize=16, fontname="helv")
 
-    # Draw a table with rectangles and lines
+    # Draw table bounding box and grid lines
     table_rect = fitz.Rect(50, 80, 500, 200)
     page.draw_rect(table_rect, color=(0, 0, 0), width=1)
 
@@ -28,7 +37,7 @@ def create_table_test_pdf(output_path: Path) -> None:
     page.draw_line(fitz.Point(50, 140), fitz.Point(500, 140), color=(0, 0, 0), width=1)
     page.draw_line(fitz.Point(50, 170), fitz.Point(500, 170), color=(0, 0, 0), width=1)
 
-    # Vertical line
+    # Vertical lines
     page.draw_line(fitz.Point(200, 80), fitz.Point(200, 200), color=(0, 0, 0), width=1)
     page.draw_line(fitz.Point(350, 80), fitz.Point(350, 200), color=(0, 0, 0), width=1)
 
@@ -54,7 +63,7 @@ def create_table_test_pdf(output_path: Path) -> None:
 
 
 def test_detect_tables_on_page(tmp_path):
-    """Verify detect_tables extracts rows and bounding box from a page."""
+    """Verify detect_tables extracts headers, rows, and bounding box from a page."""
     test_pdf = tmp_path / "test_table.pdf"
     create_table_test_pdf(test_pdf)
 
