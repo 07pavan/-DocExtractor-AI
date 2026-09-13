@@ -1,189 +1,182 @@
-"""FastAPI backend application for authenticated PDF extraction and persistence.
-"""
-
-import logging
-from typing import Dict, Any, List
-from dotenv import load_dotenv
-from fastapi import FastAPI, UploadFile, File, HTTPException, Depends, status
+import os
+import time
+import tempfile
+import asyncio
+from typing import List, Dict, Any
+from fastapi import FastAPI, UploadFile, File, HTTPException, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
-# Load environment variables from .env file
-load_dotenv()
-
-from extraction.parser import extract_document
-from api.auth import get_current_user
-from api.db import (
-    save_extraction,
-    get_user_documents,
-    get_document_extraction,
-    delete_user_document,
-)
-from api.models import DocumentSummary, DocumentDetail, ExtractionResponse
-
-# Setup server logger
-logger = logging.getLogger("api.main")
-logging.basicConfig(level=logging.INFO)
+from api.models import DocumentTree, JobStatusResponse, SampleInfo
+from api.job_manager import job_manager
+from extraction.converter import PDFConverter
+from extraction.tree_builder import TreeBuilder
 
 app = FastAPI(
-    title="PDF Extraction API",
-    description="Authenticated HTTP API for extracting and persisting structured headings, body text, and key-value fields from PDF documents.",
-    version="1.0.0",
+    title="DocExtractor AI - PDF Heading Hierarchy & Table Extraction API",
+    description="High-performance hierarchical PDF structure extraction using pymupdf4llm and FastAPI",
+    version="2.0.0"
 )
 
-# Enable CORS for all origins
+# Enable CORS for frontend local development
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=False,
+    allow_origins=["*"],  # Allow all for flexible local development
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
-    expose_headers=["*"],
 )
 
-
-@app.get("/health", tags=["Health"])
-async def health_check() -> Dict[str, str]:
-    """Health check endpoint to verify service availability (unauthenticated)."""
-    return {"status": "ok"}
+SAMPLE_PDF_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "tests", "sample_pdfs")
 
 
-@app.post("/extract", response_model=ExtractionResponse, tags=["Extraction"])
-async def extract_pdf(
-    document: UploadFile = File(..., description="PDF file to extract structure from"),
-    user_id: str = Depends(get_current_user),
-) -> Dict[str, Any]:
-    """Extracts hierarchical headings, body text, and structured key-value fields from an uploaded PDF,
+@app.get("/api/health")
+def health_check():
+    return {
+        "status": "healthy",
+        "service": "DocExtractor AI Engine",
+        "library": "pymupdf4llm",
+        "version": "2.0.0"
+    }
 
-    and persists the result in Supabase Postgres. Requires JWT authentication.
+
+@app.get("/api/samples", response_model=List[SampleInfo])
+def list_sample_pdfs():
+    """Lists available sample PDFs in the workspace for instant demo testing."""
+    samples = []
+    if os.path.exists(SAMPLE_PDF_DIR):
+        for f in os.listdir(SAMPLE_PDF_DIR):
+            if f.lower().endswith(".pdf"):
+                path = os.path.join(SAMPLE_PDF_DIR, f)
+                size = os.path.getsize(path)
+                desc = "Sample document"
+                if "AMGN" in f or "NYLM" in f or "UNAM" in f:
+                    desc = "Multi-page insurance filing with borderless tables"
+                elif "Resume" in f:
+                    desc = "Single-page structured resume with sections"
+                elif "complaint" in f:
+                    desc = "Legal complaint document"
+
+                samples.append(SampleInfo(
+                    filename=f,
+                    size_bytes=size,
+                    description=desc
+                ))
+    return samples
+
+
+@app.post("/api/extract", response_model=DocumentTree)
+async def extract_pdf_sync(file: UploadFile = File(...)):
     """
-    filename = document.filename or "uploaded_document.pdf"
-    content_type = document.content_type or ""
+    Synchronously extracts heading hierarchy and tables from uploaded PDF.
+    Recommended for PDFs under 30 pages.
+    """
+    if not file.filename.lower().endswith(".pdf"):
+        raise HTTPException(status_code=400, detail="Only PDF files (.pdf) are supported.")
 
-    # Validate file extension and/or MIME content-type
-    is_pdf_extension = filename.lower().endswith(".pdf")
-    is_pdf_content_type = (
-        content_type.lower() in [
-            "application/pdf",
-            "application/x-pdf",
-            "application/acrobat",
-            "applications/vnd.pdf",
-            "text/pdf",
-            "text/x-pdf",
-        ]
-        or "pdf" in content_type.lower()
+    start_time = time.time()
+    
+    # Save to temp file
+    suffix = os.path.splitext(file.filename)[1]
+    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+        content = await file.read()
+        tmp.write(content)
+        tmp_path = tmp.name
+
+    try:
+        # Convert PDF
+        page_chunks, full_md = await asyncio.to_thread(
+            PDFConverter.convert_to_markdown_chunks,
+            tmp_path
+        )
+        duration = time.time() - start_time
+
+        # Build hierarchical tree
+        tree = await asyncio.to_thread(
+            TreeBuilder.build_tree_from_page_chunks,
+            page_chunks=page_chunks,
+            filename=file.filename,
+            full_markdown=full_md,
+            processing_time=duration
+        )
+        return tree
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"PDF extraction error: {str(e)}")
+    finally:
+        if os.path.exists(tmp_path):
+            try:
+                os.remove(tmp_path)
+            except Exception:
+                pass
+
+
+@app.post("/api/extract/async")
+async def extract_pdf_async(background_tasks: BackgroundTasks, file: UploadFile = File(...)):
+    """
+    Asynchronously queues a PDF for extraction. Ideal for large (100+ pages) documents.
+    Returns a job_id immediately which can be polled via GET /api/jobs/{job_id}.
+    """
+    if not file.filename.lower().endswith(".pdf"):
+        raise HTTPException(status_code=400, detail="Only PDF files (.pdf) are supported.")
+
+    # Save to temp file
+    suffix = os.path.splitext(file.filename)[1]
+    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+        content = await file.read()
+        tmp.write(content)
+        tmp_path = tmp.name
+
+    job_id = job_manager.create_job()
+    background_tasks.add_task(
+        job_manager.run_async_extraction,
+        job_id=job_id,
+        temp_pdf_path=tmp_path,
+        filename=file.filename
     )
 
-    if not is_pdf_extension and not is_pdf_content_type:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid file format. Only PDF files are supported (expected .pdf extension or application/pdf MIME type).",
+    return {
+        "job_id": job_id,
+        "filename": file.filename,
+        "message": "Job queued successfully. Poll /api/jobs/{job_id} for progress and results."
+    }
+
+
+@app.get("/api/jobs/{job_id}", response_model=JobStatusResponse)
+def get_job_status(job_id: str):
+    """Polls extraction status and retrieves the result document tree once completed."""
+    job = job_manager.get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail=f"Job {job_id} not found.")
+    return job
+
+
+@app.post("/api/extract/sample/{sample_name}", response_model=DocumentTree)
+async def extract_sample_pdf(sample_name: str):
+    """Extracts a bundled sample PDF directly without re-uploading."""
+    sample_path = os.path.join(SAMPLE_PDF_DIR, sample_name)
+    if not os.path.exists(sample_path):
+        raise HTTPException(status_code=404, detail=f"Sample PDF '{sample_name}' not found.")
+
+    start_time = time.time()
+    try:
+        page_chunks, full_md = await asyncio.to_thread(
+            PDFConverter.convert_to_markdown_chunks,
+            sample_path
         )
+        duration = time.time() - start_time
 
-    try:
-        pdf_bytes = await document.read()
-        if not pdf_bytes:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Uploaded file is empty.",
-            )
-
-        # 1. Run core extraction logic
-        extracted_data = extract_document(pdf_bytes, filename=filename)
-
-        # 2. Persist document and extraction into Supabase Postgres
-        save_result = save_extraction(
-            user_id=user_id,
-            filename=filename,
-            sections=extracted_data,
+        tree = await asyncio.to_thread(
+            TreeBuilder.build_tree_from_page_chunks,
+            page_chunks=page_chunks,
+            filename=sample_name,
+            full_markdown=full_md,
+            processing_time=duration
         )
-
-        document_id = save_result.get("document_id", "")
-
-        # 3. Return extraction JSON augmented with the new document_id
-        response_payload = dict(extracted_data)
-        response_payload["document_id"] = document_id
-        return response_payload
-
-    except HTTPException:
-        # Re-raise HTTPExceptions directly
-        raise
-    except Exception as exc:
-        # Log full stack trace server-side and return a clean 500 error to the client
-        logger.exception("An error occurred during PDF extraction: %s", str(exc))
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"An error occurred while processing the PDF document: {str(exc)}",
-        ) from exc
+        return tree
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Sample PDF extraction error: {str(e)}")
 
 
-@app.get("/documents", response_model=List[DocumentSummary], tags=["Documents"])
-async def list_documents(
-    user_id: str = Depends(get_current_user),
-) -> List[Dict[str, Any]]:
-    """Retrieves a lightweight list of all uploaded documents for the authenticated user."""
-    try:
-        return get_user_documents(user_id=user_id)
-    except Exception as exc:
-        logger.exception("Failed to retrieve user documents: %s", str(exc))
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to retrieve documents.",
-        ) from exc
-
-
-@app.get("/documents/{document_id}", response_model=DocumentDetail, tags=["Documents"])
-async def get_document(
-    document_id: str,
-    user_id: str = Depends(get_current_user),
-) -> Dict[str, Any]:
-    """Retrieves full extraction structure for a specific document belonging to the user.
-
-    Returns 404 if not found or not owned by this user.
-    """
-    try:
-        document_extraction = get_document_extraction(user_id=user_id, document_id=document_id)
-        if not document_extraction:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Document '{document_id}' not found or you do not have permission to view it.",
-            )
-        return document_extraction
-    except HTTPException:
-        raise
-    except Exception as exc:
-        logger.exception("Failed to retrieve document extraction: %s", str(exc))
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to retrieve document details.",
-        ) from exc
-
-
-@app.delete("/documents/{document_id}", tags=["Documents"])
-async def delete_document(
-    document_id: str,
-    user_id: str = Depends(get_current_user),
-) -> Dict[str, Any]:
-    """Deletes a document and its extraction history belonging to the user.
-
-    Returns 404 if not found or unauthorized.
-    """
-    try:
-        success = delete_user_document(user_id=user_id, document_id=document_id)
-        if not success:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Document '{document_id}' not found or you do not have permission to delete it.",
-            )
-        return {
-            "status": "success",
-            "message": f"Document '{document_id}' successfully deleted.",
-            "document_id": document_id,
-        }
-    except HTTPException:
-        raise
-    except Exception as exc:
-        logger.exception("Failed to delete document: %s", str(exc))
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to delete document.",
-        ) from exc
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run("api.main:app", host="127.0.0.1", port=8000, reload=True)
